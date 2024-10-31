@@ -17,7 +17,7 @@ def make_celery(app_name=__name__):
     return celery
 
 
-celery_app = make_celery('nlp')
+celery_app = make_celery('vllm')
 
 app = FastAPI()
 @app.post("/api/drift/v1/vlm_verify/")
