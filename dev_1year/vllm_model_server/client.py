@@ -8,7 +8,7 @@ data = {
 
 headers = {'Content-type': 'application/json'}
 t0=time()
-response = requests.post('http://locahost:1112/api/drift/v1/vlm_verify/', data=json.dumps(data), headers=headers)
+response = requests.post('http://locahost:8000/api/drift/v1/vlm_verify/', data=json.dumps(data), headers=headers)
 t1=time()
 print(t1-t0)
 print('****************************************************************')
