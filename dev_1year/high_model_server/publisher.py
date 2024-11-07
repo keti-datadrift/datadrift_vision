@@ -17,17 +17,16 @@ def make_celery(app_name=__name__):
     return celery
 
 
-celery_app = make_celery('vllm')
+celery_app = make_celery('high_model')
 
 app = FastAPI()
-@app.post("/api/drift/v1/vlm_verify/")
+@app.post("/api/drift/v1/high_model/")
 async def send_msg(item: Item):
     print('@app.post("/items/")')
     print(item)
-    task = celery_app.send_task('generate_text_task', args=[item.query_text])
+    task = celery_app.send_task('high_model_task', args=[item.query_text])
     task.wait(timeout=30)
     print(task.info)
-    object_type = ''
 
     return task.info
 
