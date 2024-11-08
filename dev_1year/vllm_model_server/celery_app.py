@@ -8,7 +8,7 @@ import GPUtil
 GPUtil.showUtilization()
 import sys
 import os
-subpath=os.path.dirname(os.path.abspath(__file__))#+'\ControlLog'
+subpath=os.path.dirname(os.path.abspath(__file__))
 print(subpath)
 sys.path.append(subpath)
 
@@ -19,13 +19,13 @@ def make_celery(app_name=__name__):
     celery = Celery(__name__, backend=backend, broker=broker)
 
     return celery
-celery_app = make_celery('vllm')
-model_path = 'llava model here', #to chage model to llava
-@shared_task(name='generate_text_task')
-def generate_text_task(query_text ):
-    s0 = time()
-    print("******generate_text_task:",query_text )
 
+celery_app = make_celery('high_model')
+model_path = 'MLP-KTLim/llama-3-Korean-Bllossom-8B-Q4_K_M.gguf',
+@shared_task(name='high_model_task')
+def high_model_task(query_text ):
+    s0 = time()
+    print("******high_model_task:",query_text )
 
     result = None
     s1 = time()
