@@ -30,7 +30,12 @@
 | - 모델이 학습한 데이터로 데이터 드리프트가 발생하기 이전의 상황을 가정한 이미지의 폴더                                                                                   | - 모델이 학습하지 않은 데이터로 데이터 드리프트가 발생한 이후의 상황을 가정한 이미지의 폴더 |
 | - Train:Test 절반으로 나뉘어 적용됨<br>- gaussian_noise, motion_blur, brightness, pixelate가 각각 적용되어 compare image와 더불어 기본 train 이미지와의 비교가 진행됨 
                                                                                                                                                                                       
-
+### 2. 실행 위치
+```angular2html
+datadrift_vision
+    ㄴ dev_1year
+        ㄴalibi_detector
+```
 
 ### 2. <orignal_file_path>와 <compare_file_path> argument를 채워서 다음 명령어를 터미널에서 실행
 ```
@@ -68,11 +73,6 @@
 
 ```
 
-## Description
-
-### [-](link)    
-  - -
-
 ## Issues to Address
 
-- [ ] 다른 detector 옵션 추가
+- [ ] ClassifierDrift 외 다른 alibi-detector 옵션 추가
