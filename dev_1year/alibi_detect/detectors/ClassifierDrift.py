@@ -22,7 +22,7 @@ def image_to_list(paths, list):
         image = image.astype('float32')
         list.append(image)
 
-def use_aliab(orig_file_path, compare_file_path):
+def classifier_drift(orig_file_path, compare_file_path, save=False, load=False):
     extensions = (".bmp", ".jpeg", ".jpg", ".png")
 
     orig_image_paths = [os.path.join(orig_file_path,i) for i in os.listdir(orig_file_path) if os.path.splitext(i)[1] in extensions]
@@ -66,8 +66,6 @@ def use_aliab(orig_file_path, compare_file_path):
     X_c = [image_by_type[i] for i in range(2, len(image_by_type))]
     X_c_names = [type_names[i] for i in range(2, len(type_names))]
 
-
-
     tf.random.set_seed(0)
 
     model = tf.keras.Sequential(
@@ -81,16 +79,15 @@ def use_aliab(orig_file_path, compare_file_path):
       ]
     )
 
+    if load:
+        filepath = "pretrained_detector_path"
+        cd = load_detector(filepath)
+
     cd = ClassifierDrift(image_by_type[0], model, p_val=.05, train_size=.75, epochs=1)
 
-    save=False
-
     if save:
-        filepath = 'DataDrift_detector'
+        filepath = "detector_save_path"
         save_detector(cd, filepath)
-
-    # Load detector
-    # cd = load_detector(filepath)
 
     labels = ['No!', 'Yes!']
 
@@ -112,8 +109,3 @@ def use_aliab(orig_file_path, compare_file_path):
             print(f'Drift? {labels[preds["data"]["is_drift"]]}')
             print(f'p-value? : {preds["data"]["p_val"]:.3f}')
             print(f'Time (s) : {dt:.3f}')
-
-
-
-
-
