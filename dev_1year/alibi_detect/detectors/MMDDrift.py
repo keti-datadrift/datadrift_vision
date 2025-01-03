@@ -13,8 +13,8 @@ from alibi_detect.cd.tensorflow import preprocess_drift
 
 from timeit import default_timer as timer
 
-import torch
-import torch.nn as nn
+# import torch
+# import torch.nn as nn
 from alibi_detect.cd.pytorch import preprocess_drift
 
 def mmd_drift(image_by_type, X_c, X_c_names, save=False, load=False):
@@ -32,6 +32,11 @@ def mmd_drift(image_by_type, X_c, X_c_names, save=False, load=False):
             Dense(encoding_dim, )
         ]
     )
+
+    # BBSDs : Black-Box Shift Detection. Based on Detecting and correcting for label shift w/ black pox predictors
+    # X_ref_bbsds = scale_by_instance(image_by_type[0])
+    # X_h0_bbsds = scale_by_instance(image_by_type[1])
+    # X_c_bbsds = scale_by_instance(X_c)
 
     # define preprocessing function
     preprocess_fn = partial(preprocess_drift, model=encoder_net, batch_size=512)

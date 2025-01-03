@@ -1,7 +1,7 @@
 import datetime
 import argparse
-from data import process_images
-from data import transform_object
+from data.process_images import process_images
+from data.transform_object import transform_object
 
 from detectors.ClassifierDrift import classifier_drift
 from detectors.MMDDrift import mmd_drift
@@ -9,7 +9,7 @@ from detectors.MMDDrift import mmd_drift
 
 def get_args():
     parser = argparse.ArgumentParser(description='CHOOSE MODE')
-    parser.add_argument("--mode", "-m", type=str, default="classifier", help="Choose detector type")
+    parser.add_argument("--mode", "-m", type=str, default="mmd", help="Choose detector type")
     parser.add_argument("--orig_path", "-o", type=str, default="", help="original file path")
     parser.add_argument("--compare_path", "-c", type=str, default="", help="compare file path")
     parser.add_argument("--save", "-s", type=str, default=False, help="save detector")

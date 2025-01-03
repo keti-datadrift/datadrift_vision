@@ -1,6 +1,6 @@
 import os
 import random
-from image_to_list import image_to_list
+from .image_to_list import image_to_list
 
 def process_images(orig_file_path, compare_file_path):
     extensions = (".bmp", ".jpeg", ".jpg", ".png")
