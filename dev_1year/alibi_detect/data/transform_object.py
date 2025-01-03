@@ -27,4 +27,4 @@ def transform_object(train_images, test_images, compare_images):
     X_c = [image_by_type[i] for i in range(2, len(image_by_type))]
     X_c_names = [type_names[i] for i in range(2, len(type_names))]
 
-    return image_by_type, X_c, X_c_names
+    return image_by_type[0], image_by_type[1], X_c, X_c_names
