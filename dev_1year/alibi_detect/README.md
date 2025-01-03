@@ -75,4 +75,10 @@ datadrift_vision
 
 ## Issues to Address
 
-- [ ] ClassifierDrift 외 다른 alibi-detector 옵션 추가 - MMDDrift.py 수정 필요
+- [ ] ClassifierDrift 외 다른 alibi-detector 옵션 추가
+  - [x] MMDDrift 추가
+  - [x] KSDrift 추가
+  - [ ] ClassifierUncertaintyDrift 추가
+  - [ ] SpotTheDiffDrift 추가
+- [ ] 에러 수정
+  - [ ] MMDDrift.py 수정
