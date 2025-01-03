@@ -7,8 +7,7 @@ from timeit import default_timer as timer
 import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 
-def classifier_drift(image_by_type, X_c, X_c_names,  save=False, load=False):
-
+def classifier_drift(X_ref, X_h0, X_c, X_c_names,  save=False, load=False):
     tf.random.set_seed(0)
 
     model = tf.keras.Sequential(
@@ -22,7 +21,7 @@ def classifier_drift(image_by_type, X_c, X_c_names,  save=False, load=False):
       ]
     )
 
-    cd = ClassifierDrift(image_by_type[0], model, p_val=.05, train_size=.75, epochs=1)
+    cd = ClassifierDrift(X_ref, model, p_val=.05, train_size=.75, epochs=1)
 
     if load:
         filepath = "pretrained_detector_path"
@@ -35,7 +34,7 @@ def classifier_drift(image_by_type, X_c, X_c_names,  save=False, load=False):
     labels = ['No!', 'Yes!']
 
     t = timer()
-    preds = cd.predict(image_by_type[1])
+    preds = cd.predict(X_h0)
     dt = timer() - t
     print('No corruption')
     print(f'Drift? {labels[preds["data"]["is_drift"]]}')
