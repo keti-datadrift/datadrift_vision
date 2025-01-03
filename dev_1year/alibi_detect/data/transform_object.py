@@ -3,7 +3,7 @@ from albumentations import (
     Compose, GaussianBlur, MotionBlur, RandomBrightnessContrast, CoarseDropout
 )
 
-def transform_object(train_images, test_images):
+def transform_object(train_images, test_images, compare_images):
     gaussian_noise = GaussianBlur(blur_limit=7, p=1)  # 가우시안 노이즈
     motion_blur = MotionBlur(blur_limit=7, p=1)  # 모션 블러
     brightness = RandomBrightnessContrast(rightness_limit=0.2, p=1)  # 밝기 변형
