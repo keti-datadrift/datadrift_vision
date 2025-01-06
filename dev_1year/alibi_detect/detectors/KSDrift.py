@@ -51,21 +51,24 @@ def ks_drift(X_ref, X_h0, X_c, X_c_names, save=False, load=False):
     t = timer()
     preds = cd.predict(X_h0)
     dt = timer() - t
-    print('No corruption')
-    print('Drift? {}'.format(labels[preds['data']['is_drift']]))
-    print('Feature-wise p-values:')
-    print(preds['data']['p_val'])
-    print(f'Time (s) {dt:.3f}')
+
+    with open('result/ksdrift_result.txt', 'w') as f:
+        f.write('No corruption\n')
+        f.write(f"Drift? {labels[preds['data']['is_drift']]}\n")
+        f.write('Feature-wise p-values:')
+        f.write("preds['data']['p_val']\n")
+        f.write(f"Time (s) : {dt:.3f}\n")
 
     if isinstance(X_c, list):
-        for x, c in zip(X_c, X_c_names):
-            t = timer()
-            preds = cd.predict(x)
-            dt = timer() - t
-            print('')
-            print(f'Corruption type: {c}')
-            print('Drift? {}'.format(labels[preds['data']['is_drift']]))
-            print('Feature-wise p-values:')
-            print(preds['data']['p_val'])
-            print(f'Time (s) {dt:.3f}')
+            for x, c in zip(X_c, X_c_names):
+                t = timer()
+                preds = cd.predict(x)
+                dt = timer() - t
+
+                f.write('\n')
+                f.write(f'Corruption type : {c}\n')
+                f.write(f"Drift? {labels[preds['data']['is_drift']]}\n")
+                f.write('Feature-wise p-values:')
+                f.write("preds['data']['p_val']\n")
+                f.write(f"Time (s) : {dt:.3f}\n")
 
