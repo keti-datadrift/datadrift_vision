@@ -41,9 +41,9 @@ datadrift_vision
 ```
     python main.py -o <original_file_path> -c <compare_file_path>
 ```
-### 3. 출력을 확인
+### 3. result 폴더에서 result.txt를 확인
 ```
-# 출력 예시
+# 결과 예시
     No corruption
     Drift? No!
     p-value: 0.630
@@ -75,10 +75,8 @@ datadrift_vision
 
 ## Issues to Address
 
-- [ ] ClassifierDrift 외 다른 alibi-detector 옵션 추가
+- [x] ClassifierDrift 외 다른 alibi-detector 옵션 추가
   - [x] MMDDrift 추가
   - [x] KSDrift 추가
-  - [ ] ClassifierUncertaintyDrift 추가
-  - [ ] SpotTheDiffDrift 추가
 - [ ] 에러 수정
   - [ ] MMDDrift.py 수정

@@ -7,7 +7,7 @@ from timeit import default_timer as timer
 import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 
-def classifier_drift(X_ref, X_h0, X_c, X_c_names,  save=False, load=False):
+def classifier_drift(X_ref, X_h0, X_c, X_c_names, save=False, load=False):
     tf.random.set_seed(0)
 
     model = tf.keras.Sequential(
@@ -36,18 +36,21 @@ def classifier_drift(X_ref, X_h0, X_c, X_c_names,  save=False, load=False):
     t = timer()
     preds = cd.predict(X_h0)
     dt = timer() - t
-    print('No corruption')
-    print(f'Drift? {labels[preds["data"]["is_drift"]]}')
-    print(f'p-value: {preds["data"]["p_val"]:.3f}')
-    print(f'Time (s) {dt:.3f}')
 
-    if isinstance(X_c, list):
-        for x, c in zip(X_c, X_c_names):
-            t = timer()
-            preds = cd.predict(x)
-            dt = timer() - t
-            print('')
-            print(f'Corruption type : {c}')
-            print(f'Drift? {labels[preds["data"]["is_drift"]]}')
-            print(f'p-value : {preds["data"]["p_val"]:.3f}')
-            print(f'Time (s) : {dt:.3f}')
+    with open('result/classifierdrift_result.txt', 'w') as f:
+        f.write('No corruption\n')
+        f.write(f"Drift? {labels[preds['data']['is_drift']]}\n")
+        f.write(f"p-value: {preds['data']['p_val']:.3f}\n")
+        f.write(f"Time (s) {dt:.3f}\n")
+
+        if isinstance(X_c, list):
+            for x, c in zip(X_c, X_c_names):
+                t = timer()
+                preds = cd.predict(x)
+                dt = timer() - t
+
+                f.write('\n')
+                f.write(f'Corruption type : {c}\n')
+                f.write(f"Drift? {labels[preds['data']['is_drift']]}\n")
+                f.write(f"p-value : {preds['data']['p_val']:.3f}\n")
+                f.write(f"Time (s) : {dt:.3f}\n")
