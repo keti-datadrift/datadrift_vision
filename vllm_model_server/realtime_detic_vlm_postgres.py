@@ -9,7 +9,11 @@ from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 
 # Redis 클라이언트 초기화
-redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+# redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+r = redis.Redis(host='127.0.0.1', port=6379, db=0)
+# r = redis.Redis(host='localhost', port=6379, db=0)
+pub_sub = r.pubsub()
+pub_sub.subscribe('vlm_server')
 
 # PostgreSQL 연결 설정
 conn = psycopg2.connect(
@@ -61,13 +65,32 @@ results_list = []
 last_id = "0-0"
 
 try:
-    while True:
+    # while True:
         # Redis Stream에서 메시지 읽기 (일정 간격으로 폴링)
-        start_time = time.time()
-        messages = redis_client.xread({STREAM_NAME: last_id}, block=1000, count=1)
 
+        # messages = redis_client.xread({STREAM_NAME: last_id}, block=1000, count=1)
+    for message in self.user_pub_sub.listen():
+        start_time = time.time()        
         # 메시지가 있으면 처리
-        if messages:
+        if message is None:
+            continue
+        
+        if message['type'] == 'message':
+            # Get the message payload
+            detection_str = message['data']
+        
+        # Decode if bytes (Redis returns bytes by default in Python 3)
+        if isinstance(detection_str, bytes):
+            detection_str = detection_str.decode('utf-8')
+        
+        # Convert JSON string back to dictionary
+        detection = json.loads(detection_str)
+
+        # Now you can access fields
+        print("Class:", detection["rt_class"])
+        print("Confidence:", detection["rt_confidence"])
+        print("BBox:", detection["rt_bbox"])
+        print("Time:", detection["rt_time"])
             for stream, message_list in messages:
                 for message_id, message in message_list:
                     last_id = message_id  # 마지막 메시지 ID 업데이트
