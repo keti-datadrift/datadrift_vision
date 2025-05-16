@@ -13,7 +13,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'{log_dir}/objdet_textsim_server.log', encoding='utf-8'),  # Ensure log file is in UTF-8
+        logging.FileHandler(f'{log_dir}/server.log', encoding='utf-8'),  # Ensure log file is in UTF-8
         logging.StreamHandler(sys.stdout)  # Ensure console output uses UTF-8
     ]
 )
