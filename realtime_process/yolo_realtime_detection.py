@@ -49,43 +49,50 @@ while cap.isOpened():
 
             # 검출 결과 저장 (스키마 형식 참고)
             detection = {
-                "frame_id": frame_id,
+                # "frame_id": frame_id,
                 "rt_class": class_name,
                 "rt_confidence": confidence,
                 "rt_bbox": [x_min, y_min, x_max, y_max],
-                "rt_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            }
-            # Encode to base64 string
-            img_base64 = base64.b64encode(frame).decode('utf-8')
-
-            # Now package it with the detection info
-            payload = {
-                "detection": detection,
-                "image": img_base64
+                # "rt_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             }
 
-            # Serialize to JSON
-            message_str = json.dumps(payload)
+
             # detection_str = json.dumps(detection)
             detections.append(detection)
-            r.publish('vlm_server', message_str)
+
             # 바운딩 박스와 레이블 그리기
             cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
             label = f"{class_name} {confidence:.2f}"
             cv2.putText(frame, label, (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # 결과 리스트에 추가
-    results_list.append({
-        "frame_id": len(results_list),
+    # # 결과 리스트에 추가
+    # results_list.append({
+    #     "frame_id": len(results_list),
+    #     "detections": detections,
+    #     "processing_time": end_time - start_time
+    # })
+
+    _, buffer = cv2.imencode('.jpg', frame)  # JPEG로 인코딩
+    # Encode to base64 string
+    img_base64 = base64.b64encode(buffer).decode('utf-8')
+
+    # Now package it with the detection info
+    payload = {
+        # "detection": results_list,
+        "frame_id": frame_id,
         "detections": detections,
+        "image": img_base64,
         "processing_time": end_time - start_time
-    })
+    }
+    # Serialize to JSON
+    message_str = json.dumps(payload)
+    r.publish('vlm_server', message_str)
 
     # 결과 화면 표시
     cv2.imshow("YOLOv8 Real-time Detection", frame)
 
     # 'q' 키를 누르면 종료
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1000) & 0xFF == ord('q'):
         break
 
 # 리소스 해제
