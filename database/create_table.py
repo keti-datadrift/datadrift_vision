@@ -6,6 +6,7 @@ import glob
 import traceback
 import yaml
 import os
+
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
        
 from database.pgvec_lib import *
@@ -31,14 +32,15 @@ def create_db(conn,cur,TABLE_NAME):
                     id BIGSERIAL,
                     request_id BIGINT NOT NULL,
                     event_name VARCHAR(20) NOT NULL,
+                    validation VARCHAR(20) NOT NULL,
                     event_time  timestamp without time zone NOT NULL,
-                    camera_name VARCHAR(20) NOT NULL,                    
-                    description TEXT,
-                    image_path TEXT,
+                    camera_name VARCHAR(20) NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (id, created_at)
-                    ) PARTITION BY RANGE (created_at);             
+                    ) PARTITION BY RANGE (created_at);           
                     """
+        # confidence_score FLOAT,
+        # image_path TEXT,
         cur.execute(query)
         sql_command = """SET max_parallel_workers = 8;
                             SET parallel_setup_cost = 0;
