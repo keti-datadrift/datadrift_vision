@@ -33,13 +33,11 @@ def create_aimemo_vectordb(conn,cur,TABLE_NAME):
         query =  f"""CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
                     id BIGSERIAL,
                     request_id BIGINT NOT NULL,
-                    event_type INTEGER,
+                    event_name VARCHAR(20) NOT NULL,
                     event_time  timestamp without time zone NOT NULL,
                     camera_name VARCHAR(20) NOT NULL,                    
                     description TEXT,
-                    rtsp_url TEXT,
                     image_path TEXT,
-                    embedding VECTOR(768),
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (id, created_at)
                     ) PARTITION BY RANGE (created_at);             
