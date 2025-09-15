@@ -9,18 +9,11 @@ import os
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
 with open(base_abspath+'/config.yaml') as f:
     config = yaml.full_load(f)
-    hnsw_m = config['hnsw_m'] 
-    ef_construction = config['ef_construction']   
-    ef_search = config['ef_search']
+
 
 def create_partition_if_not_exists(START_DATE,END_DATE,partition_name,TABLE_NAME):
     conn,cursor = local_connect_db()
-    # conn.autocommit = True
-    # cursor = conn.cursor()
     try:      
-        # query = f"""DROP TABLE IF EXISTS {partition_name};"""
-        # print(query)
-        # cursor.execute(query)    
 
         sql_command=f"""CREATE TABLE IF NOT EXISTS {partition_name}
                     PARTITION OF {TABLE_NAME}
@@ -32,17 +25,6 @@ def create_partition_if_not_exists(START_DATE,END_DATE,partition_name,TABLE_NAME
     except Exception as e:
         print(f"Error: {e}\n{partition_name}: Partition creation failed!")
         
-    try:
-        index_name = f"{partition_name}_hnsw_idx"
-        sql_command=f"""CREATE INDEX IF NOT EXISTS {index_name}
-            ON {partition_name} 
-            USING hnsw (embedding vector_cosine_ops) 
-            WITH (m={hnsw_m}, ef_construction={ef_construction});"""
-        cursor.execute(sql_command)
-        conn.commit()        
-        print(f"{index_name}: hnsw_index created successfully!")
-    except Exception as e:
-        print(f"Error: {e}\n{index_name}: hnsw_index  creation failed!")
 
 def do_create_partition():
     date_format = "%Y-%m-%d"    
@@ -67,20 +49,7 @@ def do_create_partition():
     with open(base_abspath+'/config.yaml') as f:
         config = yaml.full_load(f)
         AIMEMO_TABLE_NAME = config['aimemo_table_name']
-        # EVENTDB_TABLE_NAME = config['eventdb_table_name']
-        # etc_objectdb_table_name = config['etc_objectdb_table_name']
 
-        # estimated_person_table_name = config['estimated_person_table_name']   
-        # confirmed_person_table_name = config['confirmed_person_table_name']   
-
-        # estimated_vehicle_table_name = config['estimated_vehicle_table_name']   
-        # confirmed_vehicle_table_name = config['confirmed_vehicle_table_name']   
-
-        # crowd_table_name = config['crowd_table_name']   
-        # tables = [AIMEMO_TABLE_NAME,EVENTDB_TABLE_NAME,etc_objectdb_table_name,\
-        #                     estimated_person_table_name,confirmed_person_table_name,\
-        #                     estimated_vehicle_table_name,confirmed_vehicle_table_name,\
-        #                     crowd_table_name]
         tables = [AIMEMO_TABLE_NAME]
         for TABLE_NAME in tables: 
             partition_name = f'''{TABLE_NAME}_{START_DATE.replace('-','_')}'''
