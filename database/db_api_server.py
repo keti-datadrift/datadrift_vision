@@ -1,8 +1,9 @@
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from pydantic import BaseModel
 import traceback
 import psycopg2
+from psycopg2.extras import RealDictCursor
 import datetime
 # from celery import Celery
 # from celery.result import AsyncResult
@@ -58,6 +59,63 @@ async def insert_event(item: EventData):
         print(traceback.format_exc())
         return {"status": "error", "message": str(e)}
 
+def get_db_connection():
+    return psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
+
+@app.get("/api/check_drift/")
+async def check_drift(
+    period: str = Query("1 day", description="기간 (예: '1 day', '1 hour')"),
+    event_name: str = Query("실시간 인식", description="이벤트명"),
+    threshold: float = Query(0.3, description="drift 문턱치 (0~1 사이 비율)")
+):
+    """
+    datadrift_events 테이블에서 특정 기간 동안 특정 이벤트를 조회하고,
+    validation == 'False' 비율이 threshold 이상이면 drift 발생으로 판단.
+    """
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # 최근 기간(예: 1 day, 1 hour)을 WHERE 조건으로 적용
+        query = f"""
+        SELECT 
+            COUNT(*) FILTER (WHERE validation = 'False') AS false_count,
+            COUNT(*) AS total_count
+        FROM datadrift_events
+        WHERE event_name = %s
+          AND created_at >= NOW() - INTERVAL %s;
+        """
+
+        cur.execute(query, (event_name, period))
+        result = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        false_count = result["false_count"] if result["false_count"] else 0
+        total_count = result["total_count"] if result["total_count"] else 0
+
+        if total_count == 0:
+            return {"status": "no_data", "message": "조회 기간 동안 데이터가 없습니다."}
+
+        false_ratio = false_count / total_count
+        drift_detected = false_ratio >= threshold
+
+        return {
+            "status": "success",
+            "event_name": event_name,
+            "period": period,
+            "total_count": total_count,
+            "false_count": false_count,
+            "false_ratio": round(false_ratio, 3),
+            "threshold": threshold,
+            "drift_detected": drift_detected
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
 if __name__ == "__main__":
     # uvicorn.run(app, host="127.0.0.1", port=8000)
     uvicorn.run(app, host="localhost", port=8000)
