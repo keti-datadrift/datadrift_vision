@@ -34,7 +34,7 @@ sys.path.append(event_vision_abspath)
 
 
 # config.yaml 불러오기
-with open("config.yaml", "r") as f:
+with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 # Redis
@@ -51,7 +51,7 @@ CAMERA_ID    = config["video"]["camera_id"]
 YOLO_MODEL   = config["yolo_model"]["model_name"]
 CONF_THRESH  = float(config["yolo_model"]["conf_thresh"])
 
-ALLOW_CLASSES_STR = config["model"].get("allow_classes", "").strip()
+ALLOW_CLASSES_STR = config["yolo_model"].get("allow_classes", "").strip()
 ALLOW_CLASSES = [c.strip() for c in ALLOW_CLASSES_STR.split(",") if c.strip()] if ALLOW_CLASSES_STR else None
 
 # Preview
@@ -105,7 +105,7 @@ def main():
             ts = time.time()
 
             # YOLO inference
-            results = model(frame, verbose=False)
+            results = model(frame, verbose=False, device=1)
             for result in results:
                 if names is None:
                     names = result.names
@@ -139,7 +139,8 @@ def main():
                         "bbox": bbox,
                         "roi_b64": roi_b64,
                     }
-                    r.xadd(STREAM, {"data": json.dumps(msg).encode("utf-8")})
+                    # r.xadd(STREAM, {"data": json.dumps(msg).encode("utf-8")})
+                    r.lpush(STREAM, json.dumps(msg))
 
                     if SHOW_PREVIEW:
                         label = f"{cls_name} {conf:.2f}"
