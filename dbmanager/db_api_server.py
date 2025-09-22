@@ -4,7 +4,8 @@ from pydantic import BaseModel
 import traceback
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import datetime
+# import datetime
+from datetime import datetime  # ✅ 이렇게 해야 함
 # from celery import Celery
 # from celery.result import AsyncResult
 
@@ -31,8 +32,8 @@ app = FastAPI()
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-@app.post("/api/datadrift_db_api/")
-async def insert_event(item: EventData):
+@app.post("/api/db_insert_event/")
+async def db_insert_event(item: EventData):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -62,8 +63,8 @@ async def insert_event(item: EventData):
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
 
-@app.get("/api/check_drift/")
-async def check_drift(
+@app.get("/api/db_check_drift/")
+async def db_check_drift(
     period: str = Query("1 day", description="기간 (예: '1 day', '1 hour')"),
     event_name: str = Query("실시간 인식", description="이벤트명"),
     threshold: float = Query(0.3, description="drift 문턱치 (0~1 사이 비율)")
