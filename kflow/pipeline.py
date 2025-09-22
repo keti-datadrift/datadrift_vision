@@ -1,3 +1,5 @@
+from components import *
+
 @dsl.pipeline(
     name="Data Drift Detection Pipeline",
     description="Periodically checks for data drift"
