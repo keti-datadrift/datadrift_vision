@@ -39,3 +39,7 @@ clip_model:
 vlm_intervals:
   interval_sec: 10
   window_sec: 30  
+
+video:
+  source: "D:/videos/single_tracking.mp4"
+  camera_id: "007"
