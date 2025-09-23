@@ -41,7 +41,7 @@ with open("config.yaml", "r", encoding="utf-8") as f:
 REDIS_HOST = config["redis"]["host"]
 REDIS_PORT = int(config["redis"]["port"])
 REDIS_DB   = int(config["redis"]["db"])
-STREAM     = config["redis"]["objdet_stream"]
+OBJDET_STREAM     = config["redis"]["objdet_stream"]
 
 # Video
 VIDEO_SOURCE = config["video"]["source"]
@@ -58,7 +58,7 @@ ALLOW_CLASSES = [c.strip() for c in ALLOW_CLASSES_STR.split(",") if c.strip()] i
 ROI_JPEG_QUALITY = int(config["preview"]["roi_jpeg_quality"])
 SHOW_PREVIEW = config["preview"]["show_preview"] == 1
 
-
+SHOW_PREVIEW = 1
 # -------------------- 유틸 --------------------
 def crop_roi(bgr, x1, y1, x2, y2, margin=0.06):
     h, w = bgr.shape[:2]
@@ -93,14 +93,18 @@ def main():
     frame_idx = 0
     names = None
 
-    print(f"[m1] start YOLO producer: stream={STREAM}, camera_id={CAMERA_ID}")
+    print(f"[m1] start YOLO producer: stream={OBJDET_STREAM}, camera_id={CAMERA_ID}")
     try:
         while True:
+
             ok, frame = cap.read()
             if not ok:
                 print("[m1] video read failed/broken. exiting.")
                 break
             frame_idx += 1
+            if frame_idx%30==0:
+                print(frame_idx)
+
             frame_id = str(uuid.uuid4())
             ts = time.time()
 
@@ -140,12 +144,14 @@ def main():
                         "roi_b64": roi_b64,
                     }
                     # r.xadd(STREAM, {"data": json.dumps(msg).encode("utf-8")})
-                    r.lpush(STREAM, json.dumps(msg))
+                    r.lpush(OBJDET_STREAM, json.dumps(msg))
 
                     if SHOW_PREVIEW:
                         label = f"{cls_name} {conf:.2f}"
                         cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0,255,0), 2)
                         cv2.putText(frame, label, (bbox[0], max(10, bbox[1]-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        cv2.imshow('video', frame)
+                        cv2.waitKey(1)
 
             if SHOW_PREVIEW:
                 cv2.imshow("YOLO Producer", frame)
