@@ -8,15 +8,20 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime  # ✅ 이렇게 해야 함
 # from celery import Celery
 # from celery.result import AsyncResult
+import os
+import yaml
+base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
+with open(base_abspath+'/config.yaml', encoding="utf-8") as f:
+    config = yaml.full_load(f)
 
-# DB 연결 설정
-DB_CONFIG = {
-    "dbname": "your_db",
-    "user": "your_user",
-    "password": "your_password",
-    "host": "127.0.0.1",
-    "port": "5432"
-}
+# # DB 연결 설정
+# config = {
+#     "dbname": "your_db",
+#     "user": "your_user",
+#     "password": "your_password",
+#     "host": "127.0.0.1",
+#     "port": "5432"
+# }
 
 # Pydantic 모델
 class EventData(BaseModel):
@@ -30,7 +35,16 @@ class EventData(BaseModel):
 app = FastAPI()
 
 def get_db_connection():
-    return psycopg2.connect(**DB_CONFIG)
+    # return psycopg2.connect(**config)
+    conn = psycopg2.connect(
+        dbname=config["dbname"],
+        user=config["user"],
+        password=config["password"],
+        host=config["host"],
+        port=config["port"],
+        options="-c client_encoding=UTF8",
+        cursor_factory=RealDictCursor)
+    return conn
 
 @app.post("/api/db_insert_event/")
 async def db_insert_event(item: EventData):
@@ -61,7 +75,16 @@ async def db_insert_event(item: EventData):
         return {"status": "error", "message": str(e)}
 
 def get_db_connection():
-    return psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
+    # return psycopg2.connect(**config, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(
+        dbname=config["dbname"],
+        user=config["user"],
+        password=config["password"],
+        host=config["host"],
+        port=config["port"],
+        options="-c client_encoding=UTF8",
+        cursor_factory=RealDictCursor)
+    return conn
 
 @app.get("/api/db_check_drift/")
 async def db_check_drift(
