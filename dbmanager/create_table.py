@@ -2,28 +2,46 @@ from datetime import datetime
 import pandas as pd
 import psycopg2
 import glob
-
+import logging
 import traceback
 import yaml
 import os
+import sys
 
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
-       
-from database.pgvec_lib import *
-def delete_vectordb(conn,cur,TABLE_NAME):
-    print(f'+++++++ create_db() TABLE_NAME={TABLE_NAME} started +++++++')
-    try:
-        query =  f"""DROP TABLE IF EXISTS {TABLE_NAME};          
-                    """
-        cur.execute(query)
+sys.path.append(base_abspath)      
 
-        conn.commit()
+# from dbmanager.pgvec_lib import *
 
-        print(f'{TABLE_NAME} is removed!!!')
-    except Exception as e: 
-        log_msg = f'Exception: {TABLE_NAME} create is failed, {traceback.format_exc()}'
+
+def connect_db():
+    with open(base_abspath+'/config.yaml',encoding='utf-8') as f:
+        config = yaml.full_load(f)
+
+    conn = None
+    cur = None
+    try:        
+        host = config['host']
+        port = config['port']
+        dbname = config['dbname']
+        user = config['user']
+        password = config['password']     
+        # PostgreSQL 서버에 연결
+        conn = psycopg2.connect(
+            host=host,
+            port=port,
+            dbname=dbname,
+            user=user,
+            password=password
+        )
+        conn.autocommit = True
+        cur = conn.cursor()
+    except Exception as e:
+        log_msg = f'Exception: {traceback.format_exc()}'
         print(log_msg)
+        logging.info(log_msg)
 
+    return conn, cur
 def create_db(conn,cur,TABLE_NAME):
     print(f'+++++++ create_db() TABLE_NAME={TABLE_NAME} started +++++++')
 
@@ -43,11 +61,12 @@ def create_db(conn,cur,TABLE_NAME):
         # image_path TEXT,
         cur.execute(query)
         sql_command = """SET max_parallel_workers = 8;
-                            SET parallel_setup_cost = 0;
-                            SET parallel_tuple_cost = 0;
-                            SET maintenance_work_mem = '2GB';
-                            SET max_parallel_workers_per_gather = 4;
-                            """
+                        SET parallel_setup_cost = 0;
+                        SET parallel_tuple_cost = 0;
+                        SET maintenance_work_mem = '1900MB';
+                        SET max_parallel_workers_per_gather = 4;
+                    """
+
         cur.execute(sql_command)
         conn.commit()
 
@@ -59,14 +78,14 @@ def create_db(conn,cur,TABLE_NAME):
 
 
 def main_create_vectordb():
-    conn,cur = local_connect_db()
-    with open(base_abspath+'/config.yaml') as f:
+    conn,cur = connect_db()
+    with open(base_abspath+'/config.yaml',encoding='utf-8') as f:
         config = yaml.full_load(f)
         DD_TABLE_NAME = config['datadrift_table_name']
 
         create_db(conn,cur, DD_TABLE_NAME)
 
 if __name__ == "__main__":
-    create_db()
+    main_create_vectordb()
     pass
 
