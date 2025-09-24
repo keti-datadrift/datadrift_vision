@@ -4,11 +4,12 @@ server:
   ip: 0.0.0.0
   port: 18880
 
-host: "localhost"
-port: "5432"
-dbname: "postgres"
-user: "postgres"
-password: "chue1114!#" 
+postgres:
+  host: "127.0.0.1"
+  port: 5432
+  dbname: "postgres"
+  user: "postgres"
+  password: "postgres"
 
 redis:
   host: "127.0.0.1"

@@ -6,13 +6,13 @@ import pandas as pd
 import psycopg2
 import glob
 # from sentence_transformers import SentenceTransformer
-import pgvector
+# import pgvector
 import traceback
 import yaml
 import os
 
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
-with open(base_abspath+'/config.yaml') as f:
+with open(base_abspath+'/config.yaml', encoding="utf-8") as f:
     config = yaml.full_load(f)
     AIMEMO_TABLE_NAME = config['datadrift_table_name']
 

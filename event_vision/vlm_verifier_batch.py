@@ -17,22 +17,33 @@ import redis
 import psycopg2
 import psycopg2.extras
 from PIL import Image
+import torch
+import yaml
 
-REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB   = int(os.getenv("REDIS_DB", "0"))
-VLM_STREAM = os.getenv("VLM_STREAM", "vlm_verifications")
+# ---------------- config.yaml 불러오기 ----------------
+with open("config.yaml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
 
-PG_HOST = os.getenv("PG_HOST", "127.0.0.1")
-PG_PORT = int(os.getenv("PG_PORT", "5432"))
-PG_DB   = os.getenv("PG_DB", "postgres")
-PG_USER = os.getenv("PG_USER", "postgres")
-PG_PW   = os.getenv("PG_PW", "postgres")
+# Redis 설정
+REDIS_HOST = config["redis"]["host"]
+REDIS_PORT = int(config["redis"]["port"])
+REDIS_DB   = int(config["redis"]["db"])
+OBJDET_STREAM = config["redis"]["objdet_stream"]   # YOLO producer stream
+VLM_STREAM    = config["redis"]["vlm_stream"]      # 검증 결과 stream
 
-INTERVAL_SEC = int(os.getenv("INTERVAL_SEC", "10"))
-WINDOW_SEC   = int(os.getenv("WINDOW_SEC", "30"))
-USE_VLM      = os.getenv("USE_VLM", "0") == "1"
-KANANA_MODEL = os.getenv("KANANA_MODEL", "kakaocorp/kanana-1.5-v-3b-instruct")
+# Postgres 설정
+PG_HOST = config["postgres"]["host"]
+PG_PORT = int(config["postgres"]["port"])
+PG_DB   = config["postgres"]["dbname"]
+PG_USER = config["postgres"]["user"]
+PG_PW   = config["postgres"]["password"]
+
+# VLM 관련 설정
+INTERVAL_SEC = int(config.get("vlm", {}).get("interval_sec", 10))
+WINDOW_SEC   = int(config.get("vlm", {}).get("window_sec", 30))
+USE_VLM      = config.get("vlm", {}).get("use_vlm", False)
+KANANA_MODEL = config.get("vlm", {}).get("kanana_model", "kakaocorp/kanana-1.5-v-3b-instruct")
+
 
 vlm_model = None
 vlm_processor = None
@@ -57,7 +68,7 @@ def init_vlm():
     vlm_processor = AutoProcessor.from_pretrained(KANANA_MODEL, trust_remote_code=True)
 
 def ask_kanana_yesno(pil_image: Image.Image, question: str):
-    import torch
+
     sample = {
         "image": [pil_image],
         "conv": [
