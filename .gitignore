@@ -165,4 +165,5 @@ clip_verifier_batch.py
 "./event_vision/README.md"
 .backup/
 ivx_4modules.zip
-.systemdesign/
+.systemdesign/"systemdesign/" 
+"backup/" 
