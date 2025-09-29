@@ -163,9 +163,12 @@ cython_debug/
 
 clip_verifier_batch.py
 "./event_vision/README.md"
+# Ignore backup & systemdesign directories
+backup/
+systemdesign/
+
+# Already listed
+clip_verifier_batch.py
+event_vision/README.md
 .backup/
 ivx_4modules.zip
-.systemdesign/"systemdesign/" 
-"backup/" 
-"systemdesign/" 
-"backup/" 
