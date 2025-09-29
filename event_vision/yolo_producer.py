@@ -119,7 +119,7 @@ def main():
                     conf = float(b.conf)
                     cls_id = int(b.cls)
                     cls_name = names.get(cls_id, str(cls_id))
-
+                    print(cls_name)
                     if conf < CONF_THRESH:
                         continue
                     if ALLOW_CLASSES and (cls_name not in ALLOW_CLASSES):
@@ -147,11 +147,27 @@ def main():
                     r.lpush(OBJDET_STREAM, json.dumps(msg))
 
                     if SHOW_PREVIEW:
-                        label = f"{cls_name} {conf:.2f}"
-                        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0,255,0), 2)
-                        cv2.putText(frame, label, (bbox[0], max(10, bbox[1]-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                        cv2.imshow('video', frame)
-                        cv2.waitKey(1)
+                        # label = f"{cls_name} {conf:.2f}"
+                        # cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0,255,0), 2)
+                        # cv2.putText(frame, label, (bbox[0], max(10, bbox[1]-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        if SHOW_PREVIEW:
+                            label = f"{cls_name} {conf:.2f}"
+
+                            # Draw bounding box
+                            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+
+                            # Calculate text size
+                            (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                            # Draw filled rectangle as background for label
+                            cv2.rectangle(frame,
+                                        (bbox[0], bbox[1] - text_h - baseline),
+                                        (bbox[0] + text_w, bbox[1]),
+                                        (0, 255, 0), -1)
+                            # Put label text (black for contrast)
+                            cv2.putText(frame, label, (bbox[0], bbox[1] - baseline),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            # cv2.imshow('video', frame)
+            # cv2.waitKey(1)
 
             if SHOW_PREVIEW:
                 cv2.imshow("YOLO Producer", frame)

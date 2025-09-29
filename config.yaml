@@ -24,9 +24,10 @@ video:
   camera_id: "camera_1"
 
 yolo_model:
-  model_name: "yolov8n.pt"
+  # model_name: "./model/firesmoke_yolov8n_best.pt"
+  model_name: "./model/genderdet_last.pt"
   conf_thresh: 0.3
-  allow_classes: "man,woman,car,fire,smoke, animal"
+  allow_classes: "person,man,woman,car,fire,smoke,animal"
 
 preview:
   roi_jpeg_quality: 80
@@ -48,5 +49,6 @@ vlm_intervals:
   window_sec: 30  
 
 video:
-  source: "D:/videos/single_tracking.mp4"
+  # source: "D:/videos/single_tracking.mp4"
+  source: "D:/videos/falldownfire.mp4"
   camera_id: "007"
