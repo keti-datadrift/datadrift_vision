@@ -26,7 +26,7 @@ video:
 yolo_model:
   model_name: "yolov8n.pt"
   conf_thresh: 0.3
-  allow_classes: "person,car,fire,animal"
+  allow_classes: "man,woman,car,fire,smoke, animal"
 
 preview:
   roi_jpeg_quality: 80

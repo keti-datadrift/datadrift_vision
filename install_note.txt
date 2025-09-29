@@ -1,0 +1,22 @@
+MODEL = "kakaocorp/kanana-1.5-v-3b-instruct" 구동 위한 라이브러리 설치
+
+# (권장) 기존 timm 제거 후 재설치
+pip uninstall -y timm
+pip install "timm>=0.9.12"
+
+# 필요 시 추가 의존성
+pip install einops
+
+
+# 사용 중인 conda/venv 활성화 후
+pip install -U accelerate
+
+pip install bitsandbytes accelerate
+
+pip install fastapi uvicorn
+pip install psycopg2
+pip install opencv-contrib-python
+pip install ultralytics
+pip install redis
+
+
