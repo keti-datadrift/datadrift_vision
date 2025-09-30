@@ -1,9 +1,0 @@
-
-불꽃 연기 모델 출처
-https://github.com/luminous0219/fire-and-smoke-detection-yolov8/tree/main
-성별분류모델출처
-https://huggingface.co/DhanushSGowda/yolov8n-gender-classification/tree/main
-
-https://github.com/Yara-Hatem/FaceGenderAge-YOLO/blob/main/Face%2C%20Gender%20%26%20Age%20detection.ipynb
-
-https://github.com/nishu-2004/yolov8-genderdetection-model/blob/main/README.md (잘 안됬음)
