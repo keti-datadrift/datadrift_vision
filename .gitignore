@@ -174,4 +174,5 @@ event_vision/README.md
 ivx_4modules.zip
 README.md
 model/*.pt
+model/model_note.txt
 
