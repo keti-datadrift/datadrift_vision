@@ -22,6 +22,7 @@ from PIL import Image
 from io import BytesIO
 import yaml
 from ultralytics import YOLO
+# from multiprocessing import Process, Queue
 # import locale, sys
 # locale.setlocale(locale.LC_ALL, "ko_KR.UTF-8")
 # sys.stdout.reconfigure(encoding="utf-8")
@@ -108,6 +109,10 @@ def main():
             frame_id = str(uuid.uuid4())
             ts = time.time()
 
+            confs = []
+            cls_names = []
+            bboxes = []
+
             # YOLO inference
             results = model(frame, verbose=False, device=1)
             for result in results:
@@ -122,53 +127,59 @@ def main():
                     print(cls_name)
                     if conf < CONF_THRESH:
                         continue
+
                     if ALLOW_CLASSES and (cls_name not in ALLOW_CLASSES):
                         continue
-
-                    roi, bbox = crop_roi(frame, x1, y1, x2, y2, margin=0.06)
+                    confs.append(conf)
+                    cls_names.append(cls_name)
+                    bboxes.append((x1, y1, x2, y2))
+                    roi, bbox = crop_roi(frame, x1, y1, x2, y2, margin=0.25)
                     if roi is None:
                         continue
-                    roi_b64 = bgr_to_b64jpg(roi, quality=ROI_JPEG_QUALITY)
+                    # roi_b64 = bgr_to_b64jpg(roi, quality=ROI_JPEG_QUALITY)
 
-                    detection_id = str(uuid.uuid4())
-                    msg = {
-                        "version": 1,
-                        "source": "yolo",
-                        "camera_id": CAMERA_ID,
-                        "frame_id": frame_id,
-                        "detection_id": detection_id,
-                        "ts": ts,
-                        "class": cls_name,
-                        "confidence": conf,
-                        "bbox": bbox,
-                        "roi_b64": roi_b64,
-                    }
+                    # detection_id = str(uuid.uuid4())
+                    # msg = {
+                    #     "version": 1,
+                    #     "source": "yolo",
+                    #     "camera_id": CAMERA_ID,
+                    #     "frame_id": frame_id,
+                    #     "detection_id": detection_id,
+                    #     "ts": ts,
+                    #     "class": cls_name,
+                    #     "confidence": conf,
+                    #     "bbox": bbox,
+                    #     "roi_b64": roi_b64,
+                    # }
                     # r.xadd(STREAM, {"data": json.dumps(msg).encode("utf-8")})
-                    r.lpush(OBJDET_STREAM, json.dumps(msg))
 
                     if SHOW_PREVIEW:
-                        # label = f"{cls_name} {conf:.2f}"
-                        # cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0,255,0), 2)
-                        # cv2.putText(frame, label, (bbox[0], max(10, bbox[1]-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                        if SHOW_PREVIEW:
-                            label = f"{cls_name} {conf:.2f}"
+                        label = f"{cls_name} {conf:.2f}"
 
-                            # Draw bounding box
-                            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+                        # Draw bounding box
+                        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
 
-                            # Calculate text size
-                            (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                            # Draw filled rectangle as background for label
-                            cv2.rectangle(frame,
-                                        (bbox[0], bbox[1] - text_h - baseline),
-                                        (bbox[0] + text_w, bbox[1]),
-                                        (0, 255, 0), -1)
-                            # Put label text (black for contrast)
-                            cv2.putText(frame, label, (bbox[0], bbox[1] - baseline),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-            # cv2.imshow('video', frame)
-            # cv2.waitKey(1)
-
+                        # Calculate text size
+                        (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        # Draw filled rectangle as background for label
+                        cv2.rectangle(frame,(bbox[0], bbox[1] - text_h - baseline),(bbox[0] + text_w, bbox[1]),(0, 255, 0), -1)
+                        # Put label text (black for contrast)
+                        cv2.putText(frame, label, (bbox[0], bbox[1] - baseline),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            msg = {
+                # "version": 1,
+                # "source": "yolo",
+                "camera_id": CAMERA_ID,
+                # "frame": frame,
+                # "frame_id": frame_id,
+                # "detection_id": detection_id,
+                "ts": ts,
+                "classes": cls_names,
+                "confidence": confs,
+                "bboxes": bboxes,
+                # "roi_b64": roi_b64,
+            }
+            r.lpush(OBJDET_STREAM, json.dumps(msg))
+            # q.put(msg)
             if SHOW_PREVIEW:
                 cv2.imshow("YOLO Producer", frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
