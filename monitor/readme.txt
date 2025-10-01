@@ -8,3 +8,5 @@ https://github.com/microsoftarchive/redis/releases
 2.python publisher.py
 3.python pyqt_aimemo_listcontrol_v11.py
 4.python client
+
+start "redis-server" "C:\Program Files\Redis\redis-server.exe" --port 6380 --slaveof 127.0.0.1 6379"
