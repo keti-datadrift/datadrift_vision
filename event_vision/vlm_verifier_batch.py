@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-파일 3) Kanana VLM 기반 비실시간 검증 모듈(주기 실행)
-- 입력: PostgreSQL에서 최근의 detections / realtime_events 조회
-- 처리: Kanana VLM 또는 mock 검증(환경변수로 토글)으로 신뢰성 검토
-- 출력: Redis Stream('vlm_verifications')로 검증 결과 publish
-- 주기: 기본 10초 간격
+Kanana VLM 기반 검증 모듈 (TaskCoordinator 기반)
+- 입력: Redis Stream(OBJDET_STREAM)에서 메시지 수신
+- 처리: 메시지를 DB(detections 테이블)에 저장
+- 주기적: 주기(period)마다 DB 조회 후 VLM 검증 수행
+- 출력: Redis Stream(VLM_STREAM)으로 검증 결과 publish
 """
+
 import os
 import io
 import json
@@ -17,7 +18,6 @@ import redis
 import psycopg2
 import psycopg2.extras
 from PIL import Image
-import torch
 import yaml
 
 # ---------------- config.yaml 불러오기 ----------------
@@ -44,7 +44,12 @@ WINDOW_SEC   = int(config.get("vlm", {}).get("window_sec", 30))
 USE_VLM      = config.get("vlm", {}).get("use_vlm", False)
 KANANA_MODEL = config.get("vlm", {}).get("kanana_model", "kakaocorp/kanana-1.5-v-3b-instruct")
 
+# TaskCoordinator 주기
+PERIOD_SEC = int(config.get("vlm", {}).get("period_sec", 30))
 
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=False)
+
+# VLM 모델 초기화 (옵션)
 vlm_model = None
 vlm_processor = None
 def init_vlm():
@@ -68,7 +73,6 @@ def init_vlm():
     vlm_processor = AutoProcessor.from_pretrained(KANANA_MODEL, trust_remote_code=True)
 
 def ask_kanana_yesno(pil_image: Image.Image, question: str):
-
     sample = {
         "image": [pil_image],
         "conv": [
@@ -111,96 +115,133 @@ def event_question(event_type: str):
     }
     return m.get((event_type or '').lower(), f"{event_type}가 발생하였나요? '네', '아니요'로 대답하세요.")
 
-def main():
-    init_vlm()
+# --- DB 저장 ---
+def send_to_DB(msg):
+    print(msg)
+    # try:
+    #     with psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB,
+    #                           user=PG_USER, password=PG_PW) as conn:
+    #         with conn.cursor() as cur:
+    #             cur.execute("""
+    #                 INSERT INTO detections (detection_id, camera_id, frame_id, ts, class, confidence, roi_b64)
+    #                 VALUES (%s, %s, %s, to_timestamp(%s), %s, %s, %s);
+    #             """, (
+    #                 msg.get("detection_id"),
+    #                 msg.get("camera_id"),
+    #                 msg.get("frame_id"),
+    #                 msg.get("ts"),
+    #                 msg.get("class"),
+    #                 msg.get("confidence"),
+    #                 msg.get("roi_b64")
+    #             ))
+    #         conn.commit()
+    # except Exception as e:
+    #     print(f"[TaskCoordinator] DB insert error: {e}")
 
-    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=False)
+# --- VLM 검증 ---
+def run_vlm_batch(conn):
+    now = time.time()
+    since = now - WINDOW_SEC
 
-    conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PW)
-    conn.autocommit = True
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT detection_id, camera_id, frame_id, EXTRACT(EPOCH FROM ts) AS ts, class, confidence, roi_b64
+            FROM detections
+            WHERE ts >= to_timestamp(%s);
+        """, (since,))
+        det_rows = cur.fetchall()
 
-    print(f"[m3] vlm verifier batch: interval={INTERVAL_SEC}s window={WINDOW_SEC}s USE_VLM={int(USE_VLM)}")
+        cur.execute("""
+            SELECT event_id, detection_id, camera_id, frame_id, EXTRACT(EPOCH FROM ts) AS ts, event_type, score, decision
+            FROM realtime_events
+            WHERE ts >= to_timestamp(%s);
+        """, (since,))
+        evt_rows = cur.fetchall()
+
+    for row in det_rows:
+        det_class = row["class"]
+        question = detection_question(det_class)
+        verified, answer_raw = (None, "mock: not-checked")
+
+        if USE_VLM:
+            try:
+                pil = b64_to_pil(row["roi_b64"])
+                verified, answer_raw = ask_kanana_yesno(pil, question)
+            except Exception as e:
+                verified, answer_raw = None, f"vlm_error: {e}"
+        else:
+            verified = (row["confidence"] or 0.0) >= 0.6
+            answer_raw = f"mock:{'네' if verified else '아니요'}"
+
+        msg = {
+            "version": 1,
+            "source": "vlm",
+            "target": "detection",
+            "camera_id": row["camera_id"],
+            "frame_id": row["frame_id"],
+            "ref_id": row["detection_id"],
+            "ts": time.time(),
+            "question": question,
+            "answer_raw": answer_raw,
+            "verified": verified,
+        }
+        r.xadd(VLM_STREAM, {"data": json.dumps(msg).encode("utf-8")})
+
+    for row in evt_rows:
+        evt_type = row["event_type"]
+        question = event_question(evt_type)
+        verified, answer_raw = (None, "mock: not-checked")
+
+        if USE_VLM:
+            try:
+                verified, answer_raw = (True if row["decision"] else False,
+                                        f"heuristic_from_decision={row['decision']}")
+            except Exception as e:
+                verified, answer_raw = None, f"vlm_error: {e}"
+        else:
+            verified = True if row["decision"] else False
+            answer_raw = f"mock_from_realtime_decision={row['decision']}"
+
+        msg = {
+            "version": 1,
+            "source": "vlm",
+            "target": "event",
+            "camera_id": row["camera_id"],
+            "frame_id": row["frame_id"],
+            "ref_id": row["event_id"],
+            "ts": time.time(),
+            "question": question,
+            "answer_raw": answer_raw,
+            "verified": verified,
+        }
+        r.xadd(VLM_STREAM, {"data": json.dumps(msg).encode("utf-8")})
+
+# --- TaskCoordinator 루프 ---
+def TaskCoordinator():
+    last_sent = 0
+    # conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PW)
+    # conn.autocommit = True
+
     try:
         while True:
+            _, raw_msg = r.brpop(OBJDET_STREAM)  # 메시지 blocking 수신
+            msg = json.loads(raw_msg)
+            print("[TaskCoordinator] 받은 메시지:", msg)
+            send_to_DB(msg)
+
             now = time.time()
-            since = now - WINDOW_SEC
-
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                cur.execute("""
-                    SELECT detection_id, camera_id, frame_id, EXTRACT(EPOCH FROM ts) AS ts, class, confidence, roi_b64
-                    FROM detections
-                    WHERE ts >= to_timestamp(%s);
-                """, (since,))
-                det_rows = cur.fetchall()
-
-                cur.execute("""
-                    SELECT event_id, detection_id, camera_id, frame_id, EXTRACT(EPOCH FROM ts) AS ts, event_type, score, decision
-                    FROM realtime_events
-                    WHERE ts >= to_timestamp(%s);
-                """, (since,))
-                evt_rows = cur.fetchall()
-
-            for row in det_rows:
-                det_class = row["class"]
-                question = detection_question(det_class)
-                verified, answer_raw = (None, "mock: not-checked")
-
-                if USE_VLM:
-                    try:
-                        pil = b64_to_pil(row["roi_b64'])
-                        verified, answer_raw = ask_kanana_yesno(pil, question)
-                    except Exception as e:
-                        verified, answer_raw = None, f"vlm_error: {e}"
-                else:
-                    verified = (row["confidence"] or 0.0) >= 0.6
-                    answer_raw = f"mock:{'네' if verified else '아니요'}"
-
-                msg = {
-                    "version": 1,
-                    "source": "vlm",
-                    "target": "detection",
-                    "camera_id": row["camera_id"],
-                    "frame_id": row["frame_id"],
-                    "ref_id": row["detection_id"],
-                    "ts": time.time(),
-                    "question": question,
-                    "answer_raw": answer_raw,
-                    "verified": verified,
-                }
-                r.xadd(VLM_STREAM, {"data": json.dumps(msg).encode("utf-8")})
-
-            for row in evt_rows:
-                evt_type = row["event_type"]
-                question = event_question(evt_type)
-                verified, answer_raw = (None, "mock: not-checked")
-
-                if USE_VLM:
-                    try:
-                        verified, answer_raw = (True if row["decision"] else False,
-                                                f"heuristic_from_decision={row['decision']}")
-                    except Exception as e:
-                        verified, answer_raw = None, f"vlm_error: {e}"
-                else:
-                    verified = True if row["decision"] else False
-                    answer_raw = f"mock_from_realtime_decision={row['decision']}"
-
-                msg = {
-                    "version": 1,
-                    "source": "vlm",
-                    "target": "event",
-                    "camera_id": row["camera_id"],
-                    "frame_id": row["frame_id"],
-                    "ref_id": row["event_id"],
-                    "ts": time.time(),
-                    "question": question,
-                    "answer_raw": answer_raw,
-                    "verified": verified,
-                }
-                r.xadd(VLM_STREAM, {"data": json.dumps(msg).encode("utf-8")})
-
-            time.sleep(INTERVAL_SEC)
+            if now - last_sent > PERIOD_SEC:
+                print("[TaskCoordinator] Triggering VLM batch...")
+                # run_vlm_batch(conn)
+                last_sent = now
     finally:
-        conn.close()
+        # conn.close()
+        pass
+
+def main():
+    init_vlm()
+    print(f"[m3] vlm verifier batch (TaskCoordinator): period={PERIOD_SEC}s window={WINDOW_SEC}s USE_VLM={int(USE_VLM)}")
+    TaskCoordinator()
 
 if __name__ == "__main__":
     main()
