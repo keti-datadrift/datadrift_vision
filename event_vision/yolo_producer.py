@@ -16,12 +16,13 @@ import cv2
 import time
 import uuid
 import json
-import base64
 import redis
-from PIL import Image
-from io import BytesIO
+# import base64
+# from PIL import Image
+# from io import BytesIO
 import yaml
 from ultralytics import YOLO
+from util import *
 # from multiprocessing import Process, Queue
 # import locale, sys
 # locale.setlocale(locale.LC_ALL, "ko_KR.UTF-8")
@@ -60,24 +61,7 @@ ROI_JPEG_QUALITY = int(config["preview"]["roi_jpeg_quality"])
 SHOW_PREVIEW = config["preview"]["show_preview"] == 1
 
 SHOW_PREVIEW = 1
-# -------------------- 유틸 --------------------
-def crop_roi(bgr, x1, y1, x2, y2, margin=0.06):
-    h, w = bgr.shape[:2]
-    dx = int((x2 - x1) * margin)
-    dy = int((y2 - y1) * margin)
-    X1 = max(0, x1 - dx)
-    Y1 = max(0, y1 - dy)
-    X2 = min(w - 1, x2 + dx)
-    Y2 = min(h - 1, y2 + dy)
-    if X2 <= X1 or Y2 <= Y1:
-        return None
-    return bgr[Y1:Y2, X1:X2].copy(), [X1, Y1, X2, Y2]
 
-def bgr_to_b64jpg(bgr, quality=80):
-    im = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-    buf = BytesIO()
-    im.save(buf, format="JPEG", quality=quality)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 def main():
     # Redis
