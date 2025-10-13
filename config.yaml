@@ -25,9 +25,11 @@ video:
 
 yolo_model:
   # model_name: "./model/firesmoke_yolov8n_best.pt"
-  model_name: "./model/genderdet_last.pt"
+  model_name: "./model/yolov8n.pt"
+  
+  # model_name: "./model/genderdet_last.pt"
   conf_thresh: 0.3
-  allow_classes: "person,man,woman,car,fire,smoke,animal"
+  allow_classes: "person" #,man,woman,car,fire,smoke,animal"
 
 preview:
   roi_jpeg_quality: 80
@@ -50,5 +52,8 @@ vlm_intervals:
 
 video:
   # source: "D:/videos/single_tracking.mp4"
-  source: "D:/videos/falldownfire.mp4"
+  # source: "D:/videos/falldownfire.mp4"
+  # source: "D:/videos/u5setfire.mp4"
+  source: "D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4"
+  # source: "D:/videos/Caught in 4K! Funniest Security Camera Fails (1080p).mp4"
   camera_id: "007"
