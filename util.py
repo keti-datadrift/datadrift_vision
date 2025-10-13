@@ -1,6 +1,7 @@
 from PIL import Image
 from io import BytesIO
 import base64
+import cv2
 # -------------------- 유틸 --------------------
 def crop_roi(bgr, x1, y1, x2, y2, margin=0.25):
     h, w = bgr.shape[:2]
