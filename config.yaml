@@ -1,4 +1,4 @@
-datadrift_table_name: 'datadrift_table'
+datadrift_table: 'datadrift_db'
 
 server:
   ip: 0.0.0.0
@@ -6,6 +6,8 @@ server:
 
 postgres:
   host: "127.0.0.1"
+  # host: "172.16.2.1"
+  # host: "172.16.15.189"
   port: 5432
   dbname: "postgres"
   user: "postgres"
@@ -33,7 +35,7 @@ yolo_model:
 
 preview:
   roi_jpeg_quality: 80
-  show_preview: 0
+  show_preview: 1
   
 ########### vlm event recognizer ###########  
 clip_model:
@@ -54,6 +56,6 @@ video:
   # source: "D:/videos/single_tracking.mp4"
   # source: "D:/videos/falldownfire.mp4"
   # source: "D:/videos/u5setfire.mp4"
-  source: "D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4"
-  # source: "D:/videos/Caught in 4K! Funniest Security Camera Fails (1080p).mp4"
+  # source: "D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4"
+  source: "D:/videos/Caught in 4K! Funniest Security Camera Fails (1080p).mp4"
   camera_id: "007"

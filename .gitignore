@@ -162,14 +162,14 @@ cython_debug/
 #.idea/
 
 clip_verifier_batch.py
-"./event_vision/README.md"
+"./vision_analysis/README.md"
 # Ignore backup & systemdesign directories
 backup/
 systemdesign/
 
 # Already listed
 clip_verifier_batch.py
-event_vision/README.md
+vision_analysis/README.md
 .backup/
 ivx_4modules.zip
 README.md
