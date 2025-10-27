@@ -1,0 +1,33 @@
+# Configuration for drift detection cron job
+
+# API Server settings
+api:
+  host: "localhost"
+  port: 8000
+  endpoint: "/api/db_check_drift/"
+  timeout: 30  # Request timeout in seconds
+
+# Drift detection parameters
+drift_params:
+  period: "1 day"              # Time period to check (e.g., "1 day", "12 hours", "1 hour")
+  event_name: "실시간 인식"     # Event name to filter
+  threshold: 0.03               # Drift threshold (0.0 to 1.0, e.g., 0.3 = 30%)
+
+# Logging settings
+logging:
+  log_file: "drift_checker.log"
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Alert settings
+alert:
+  enabled: true                # Enable alerts when drift is detected
+  # Add additional alert configurations here:
+  # email:
+  #   enabled: false
+  #   smtp_server: "smtp.gmail.com"
+  #   smtp_port: 587
+  #   from_email: "alerts@example.com"
+  #   to_emails: ["admin@example.com"]
+  # slack:
+  #   enabled: false
+  #   webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
