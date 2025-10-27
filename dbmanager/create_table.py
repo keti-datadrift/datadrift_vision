@@ -20,12 +20,13 @@ def connect_db():
 
     conn = None
     cur = None
-    try:        
-        host = config['host']
-        port = config['port']
-        dbname = config['dbname']
-        user = config['user']
-        password = config['password']     
+    try:     
+        # TABLE_NAME = config['table_name']   
+        host = config['postgres']['host']
+        port = config['postgres']['port']
+        dbname = config['postgres']['dbname']
+        user = config['postgres']['user']
+        password = config['postgres']['password']     
         # PostgreSQL 서버에 연결
         conn = psycopg2.connect(
             host=host,
@@ -46,17 +47,22 @@ def create_db(conn,cur,TABLE_NAME):
     print(f'+++++++ create_db() TABLE_NAME={TABLE_NAME} started +++++++')
 
     try:
-        query =  f"""CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-                    id BIGSERIAL,
-                    request_id BIGINT NOT NULL,
-                    event_name VARCHAR(20) NOT NULL,
-                    validation VARCHAR(20) NOT NULL,
-                    event_time  timestamp without time zone NOT NULL,
-                    camera_name VARCHAR(20) NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (id, created_at)
-                    ) PARTITION BY RANGE (created_at);           
-                    """
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+            id           BIGSERIAL,
+            frame_id     TEXT,                           -- response['frame_id']
+            camera_name  VARCHAR(32) NOT NULL,           -- response['camera_id']
+            class_name   VARCHAR(30),                    -- response['class']
+            event_time   TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+            confidence   REAL,                           -- response['confidence']
+            vlm_valid    VARCHAR(20),                    -- response['vlm_valid'] (검증 결과)
+
+            created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, created_at)
+        ) PARTITION BY RANGE (created_at);
+        """
+        # created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        # request_id BIGINT NOT NULL,
         # confidence_score FLOAT,
         # image_path TEXT,
         cur.execute(query)
@@ -75,13 +81,11 @@ def create_db(conn,cur,TABLE_NAME):
         log_msg = f'Exception: {TABLE_NAME} create is failed, {traceback.format_exc()}'     
         print(log_msg)
 
-
-
 def main_create_vectordb():
     conn,cur = connect_db()
     with open(base_abspath+'/config.yaml',encoding='utf-8') as f:
         config = yaml.full_load(f)
-        DD_TABLE_NAME = config['datadrift_table_name']
+        DD_TABLE_NAME = config['datadrift_table']
 
         create_db(conn,cur, DD_TABLE_NAME)
 

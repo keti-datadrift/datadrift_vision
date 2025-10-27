@@ -3,13 +3,14 @@ import psycopg2
 from pytz import timezone
 from datetime import datetime, timedelta
 import yaml
+from pathlib import Path
 from pgvec_lib import local_connect_db
 
 import os
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
-with open(base_abspath+'/config.yaml') as f:
-    config = yaml.full_load(f)
-
+cfg_path = Path(base_abspath) / "config.yaml"
+with cfg_path.open("r", encoding="utf-8-sig") as f:   # ★ 핵심
+    config = yaml.safe_load(f)  
 
 def create_partition_if_not_exists(START_DATE,END_DATE,partition_name,TABLE_NAME):
     conn,cursor = local_connect_db()
@@ -46,11 +47,14 @@ def do_create_partition():
 
     # CURR_DATE = START_DATE.replace('-','_')
 
-    with open(base_abspath+'/config.yaml') as f:
-        config = yaml.full_load(f)
-        AIMEMO_TABLE_NAME = config['aimemo_table_name']
+    # with open(base_abspath+'/config.yaml') as f:
+    #     config = yaml.full_load(f)
+    cfg_path = Path(base_abspath) / "config.yaml"
+    with cfg_path.open("r", encoding="utf-8-sig") as f:   # ★ 핵심
+        config = yaml.safe_load(f)       
+        AIMEMO_TABLE = config['datadrift_table']
 
-        tables = [AIMEMO_TABLE_NAME]
+        tables = [AIMEMO_TABLE]
         for TABLE_NAME in tables: 
             partition_name = f'''{TABLE_NAME}_{START_DATE.replace('-','_')}'''
             create_partition_if_not_exists(START_DATE,END_DATE,partition_name,TABLE_NAME)  
