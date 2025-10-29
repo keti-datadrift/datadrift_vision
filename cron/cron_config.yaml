@@ -15,7 +15,7 @@ drift_params:
 
 # Logging settings
 logging:
-  log_file: "drift_checker.log"
+  log_file: "drift_scheduler.log"
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 # Alert settings
