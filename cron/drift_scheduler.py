@@ -27,7 +27,8 @@ def main():
         )
 
         scheduler = BackgroundScheduler()
-        scheduler.add_job(scheduled_job, "interval", hours=1, id="drift_check")
+        # scheduler.add_job(scheduled_job, "interval", hours=1, id="drift_check")
+        scheduler.add_job(scheduled_job, "interval", seconds=10, id="drift_check")
 
         scheduler.start()
         logging.info("🚀 APScheduler drift detection service started (interval=1h)")

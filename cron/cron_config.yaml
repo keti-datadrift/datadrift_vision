@@ -21,13 +21,13 @@ logging:
 # Alert settings
 alert:
   enabled: true                # Enable alerts when drift is detected
-  # Add additional alert configurations here:
-  # email:
-  #   enabled: false
-  #   smtp_server: "smtp.gmail.com"
-  #   smtp_port: 587
-  #   from_email: "alerts@example.com"
-  #   to_emails: ["admin@example.com"]
+  Add additional alert configurations here:
+  email:
+    enabled: false
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    from_email: "alerts@example.com"
+    to_emails: ["admin@example.com"]
   # slack:
   #   enabled: false
   #   webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
