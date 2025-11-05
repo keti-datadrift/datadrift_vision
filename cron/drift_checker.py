@@ -104,6 +104,7 @@ def main():
         logging.info("=" * 60)
 
         drift_api_url = f"http://{db_host}:{db_port}/api/db_check_drift/"
+        
         retrain_api_url = f"http://{db_host}:{db_port}/api/db_retrain/"
 
         params = {

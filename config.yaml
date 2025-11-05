@@ -27,11 +27,11 @@ video:
 
 yolo_model:
   # model_name: "./model/firesmoke_yolov8n_best.pt"
-  model_name: "./model/yolov8n.pt"
+  model_name: "./model/yolov8n_local.pt"
   
   # model_name: "./model/genderdet_last.pt"
   conf_thresh: 0.3
-  allow_classes: "person" #,man,woman,car,fire,smoke,animal"
+  allow_classes: "all" #"person" #,man,woman,car,fire,smoke,animal"
 
 preview:
   roi_jpeg_quality: 80
