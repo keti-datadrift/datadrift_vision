@@ -27,8 +27,9 @@ video:
 
 yolo_model:
   # model_name: "./model/firesmoke_yolov8n_best.pt"
-  model_name: "./model/yolov8n_local.pt"
-  
+  # model_name: "./model/yolov8n_local.pt"
+  # model_name: "./model/retrain3/weights/best.pt"
+  model_name: "./model/yolov8nGender.pt"
   # model_name: "./model/genderdet_last.pt"
   conf_thresh: 0.3
   allow_classes: "all" #"person" #,man,woman,car,fire,smoke,animal"
@@ -56,6 +57,6 @@ video:
   # source: "D:/videos/single_tracking.mp4"
   # source: "D:/videos/falldownfire.mp4"
   # source: "D:/videos/u5setfire.mp4"
-  # source: "D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4"
-  source: "D:/videos/Caught in 4K! Funniest Security Camera Fails (1080p).mp4"
+  source: "D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4"
+  # source: "D:/videos/Caught in 4K! Funniest Security Camera Fails (1080p).mp4"
   camera_id: "007"
