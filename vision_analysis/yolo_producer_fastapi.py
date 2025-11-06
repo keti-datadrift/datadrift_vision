@@ -53,6 +53,8 @@ if 'all'==ALLOW_CLASSES_STR:
 ROI_JPEG_QUALITY = int(config["preview"]["roi_jpeg_quality"])
 SHOW_PREVIEW = config["preview"]["show_preview"] == 1
 SHOW_PREVIEW = False
+FRAMES_PER_DRIFT_DETECTION = 30
+
 TABLE_NAME = config["datadrift_table"]
 def get_db_connection():
     # return psycopg2.connect(**config)
@@ -274,7 +276,7 @@ def main():
                 print("[m1] video read failed/broken. exiting.")
                 break
             frame_idx += 1
-            if frame_idx%10!=0:
+            if frame_idx%FRAMES_PER_DRIFT_DETECTION!=0:
                 # print(frame_idx)
                 continue
 
@@ -367,9 +369,7 @@ def main():
                         cv2.putText(frame, label, (x1, y1 - baseline),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
-                    #     cv2.imshow("YOLO Producer", frame)
-                    #     if cv2.waitKey(1) & 0xFF == ord("q"):
-                    #         break                    
+                   
                     frame_b64 = bgr_to_b64jpg(frame)
                     # Redis 대신 FastAPI로 전송
                     try:
@@ -412,6 +412,10 @@ def main():
 
             # return {"status": "success", "message": f"Saved to {save_dir}"}
             print(f"success Saved to {save_dir}")
+            if SHOW_PREVIEW:
+                cv2.imshow("YOLO Producer", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break 
 
 
     finally:
