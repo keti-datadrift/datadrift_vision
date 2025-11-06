@@ -1016,20 +1016,237 @@ def evaluate_old_and_new_models():
     return results
 
 
+def count_images_and_instances_from_labels(test_labels_dir):
+    """
+    Count number of images and instances per class from test labels directory
+
+    Args:
+        test_labels_dir: Path to test labels directory
+
+    Returns:
+        tuple: (image_counts_dict, instance_counts_dict)
+    """
+    image_counts = {}  # Number of images containing each class
+    instance_counts = {}  # Total number of instances per class
+
+    if not os.path.exists(test_labels_dir):
+        return image_counts, instance_counts
+
+    label_files = glob(os.path.join(test_labels_dir, "*.txt"))
+
+    for label_file in label_files:
+        classes_in_image = set()
+        try:
+            with open(label_file, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if parts:
+                        class_id = int(parts[0])
+                        classes_in_image.add(class_id)
+                        # Count instances
+                        instance_counts[class_id] = instance_counts.get(class_id, 0) + 1
+
+            # Count images
+            for class_id in classes_in_image:
+                image_counts[class_id] = image_counts.get(class_id, 0) + 1
+
+        except Exception as e:
+            print(f"Warning: Failed to read {label_file}: {e}")
+            continue
+
+    return image_counts, instance_counts
+
+
+def compare_per_class_performance(old_results, new_results, class_names=None):
+    """
+    클래스별 성능 비교 (Old vs New 모델)
+
+    Args:
+        old_results: Old model evaluation results
+        new_results: New model evaluation results
+        class_names: List of class names (optional, uses global class_names_list if not provided)
+
+    Returns:
+        dict: Per-class comparison statistics
+    """
+    if not old_results or not new_results:
+        print("Error: Both old and new results are required for comparison")
+        return None
+
+    if not hasattr(old_results, 'box') or not hasattr(new_results, 'box'):
+        print("Error: Results do not contain box metrics")
+        return None
+
+    old_metrics = old_results.box
+    new_metrics = new_results.box
+
+    # Use provided class names or fall back to global
+    if class_names is None:
+        class_names = class_names_list
+
+    print(f"\n{'='*100}")
+    print("PER-CLASS PERFORMANCE COMPARISON (Old vs New Model)")
+    print(f"{'='*100}\n")
+
+    # Check if per-class metrics are available
+    if not hasattr(old_metrics, 'ap_class_index') or not hasattr(new_metrics, 'ap_class_index'):
+        print("Warning: Per-class metrics not available in results")
+        return None
+
+    # Get class indices and AP values
+    old_class_indices = old_metrics.ap_class_index
+    old_ap50 = old_metrics.ap50
+    old_ap = old_metrics.ap
+
+    new_class_indices = new_metrics.ap_class_index
+    new_ap50 = new_metrics.ap50
+    new_ap = new_metrics.ap
+
+    # Count images and instances from test dataset labels
+    test_labels_dir = os.path.join(base_abspath, "datasets", "splitted", "test", "labels")
+    image_counts, instance_counts = count_images_and_instances_from_labels(test_labels_dir)
+
+    print(f"Loaded from test set: {len(image_counts)} classes with data")
+    print(f"  Total images in test set: {len(glob(os.path.join(test_labels_dir, '*.txt')))}")
+    print(f"  Total instances: {sum(instance_counts.values())}")
+
+    # Create comparison data structure
+    comparison = {}
+
+    # Collect all unique class indices
+    all_class_indices = set(list(old_class_indices) + list(new_class_indices))
+
+    for cls_idx in sorted(all_class_indices):
+        cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
+
+        # Find metrics for this class in old model
+        old_idx = None
+        if cls_idx in old_class_indices:
+            old_idx = list(old_class_indices).index(cls_idx)
+
+        # Find metrics for this class in new model
+        new_idx = None
+        if cls_idx in new_class_indices:
+            new_idx = list(new_class_indices).index(cls_idx)
+
+        # Get AP values
+        old_ap50_val = float(old_ap50[old_idx]) if old_idx is not None else 0.0
+        old_ap_val = float(old_ap[old_idx]) if old_idx is not None else 0.0
+
+        new_ap50_val = float(new_ap50[new_idx]) if new_idx is not None else 0.0
+        new_ap_val = float(new_ap[new_idx]) if new_idx is not None else 0.0
+
+        # Get image and instance counts from test set
+        num_images = image_counts.get(cls_idx, 0)
+        num_instances = instance_counts.get(cls_idx, 0)
+
+        # Calculate improvements
+        ap50_improvement = new_ap50_val - old_ap50_val
+        ap_improvement = new_ap_val - old_ap_val
+
+        ap50_improvement_pct = (ap50_improvement / old_ap50_val * 100) if old_ap50_val > 0 else 0
+        ap_improvement_pct = (ap_improvement / old_ap_val * 100) if old_ap_val > 0 else 0
+
+        comparison[cls_idx] = {
+            'class_name': cls_name,
+            'old_ap50': old_ap50_val,
+            'new_ap50': new_ap50_val,
+            'ap50_improvement': ap50_improvement,
+            'ap50_improvement_pct': ap50_improvement_pct,
+            'old_ap': old_ap_val,
+            'new_ap': new_ap_val,
+            'ap_improvement': ap_improvement,
+            'ap_improvement_pct': ap_improvement_pct,
+            'images': num_images,
+            'instances': num_instances
+        }
+
+    # Print detailed comparison table with Images and Instances columns
+    print(f"\n{'Class':<15} {'Images':<8} {'Instances':<10} {'Metric':<12} {'Old Model':<12} {'New Model':<12} {'Δ Absolute':<12} {'Δ %':<10}")
+    print(f"{'-'*105}")
+
+    for cls_idx in sorted(comparison.keys()):
+        data = comparison[cls_idx]
+        cls_name = data['class_name']
+        num_images = data['images']
+        num_instances = data['instances']
+
+        # mAP50
+        print(f"{cls_name:<15} {num_images:<8} {num_instances:<10} {'mAP50':<12} {data['old_ap50']:<12.4f} {data['new_ap50']:<12.4f} "
+              f"{data['ap50_improvement']:<+12.4f} {data['ap50_improvement_pct']:+10.2f}%")
+
+        # mAP50-95
+        print(f"{'':<15} {'':<8} {'':<10} {'mAP50-95':<12} {data['old_ap']:<12.4f} {data['new_ap']:<12.4f} "
+              f"{data['ap_improvement']:<+12.4f} {data['ap_improvement_pct']:+10.2f}%")
+
+        print()  # Empty line between classes
+
+    print(f"{'='*90}\n")
+
+    # Print summary statistics
+    print("SUMMARY STATISTICS:")
+    print(f"{'-'*80}")
+
+    # Classes with improvement
+    improved_classes = [cls_idx for cls_idx, data in comparison.items()
+                       if data['ap50_improvement'] > 0]
+    degraded_classes = [cls_idx for cls_idx, data in comparison.items()
+                       if data['ap50_improvement'] < 0]
+    unchanged_classes = [cls_idx for cls_idx, data in comparison.items()
+                        if data['ap50_improvement'] == 0]
+
+    print(f"Classes improved:   {len(improved_classes)}/{len(comparison)} "
+          f"({len(improved_classes)/len(comparison)*100:.1f}%)")
+    print(f"Classes degraded:   {len(degraded_classes)}/{len(comparison)} "
+          f"({len(degraded_classes)/len(comparison)*100:.1f}%)")
+    print(f"Classes unchanged:  {len(unchanged_classes)}/{len(comparison)} "
+          f"({len(unchanged_classes)/len(comparison)*100:.1f}%)")
+
+    # Average improvement
+    avg_ap50_improvement = sum(data['ap50_improvement'] for data in comparison.values()) / len(comparison)
+    avg_ap_improvement = sum(data['ap_improvement'] for data in comparison.values()) / len(comparison)
+
+    print(f"\nAverage mAP50 improvement:    {avg_ap50_improvement:+.4f}")
+    print(f"Average mAP50-95 improvement: {avg_ap_improvement:+.4f}")
+
+    # Best and worst improvements
+    best_improved = max(comparison.items(), key=lambda x: x[1]['ap50_improvement'])
+    worst_degraded = min(comparison.items(), key=lambda x: x[1]['ap50_improvement'])
+
+    print(f"\nBest improved class:  {best_improved[1]['class_name']} "
+          f"(+{best_improved[1]['ap50_improvement']:.4f}, {best_improved[1]['ap50_improvement_pct']:+.2f}%)")
+    print(f"Worst degraded class: {worst_degraded[1]['class_name']} "
+          f"({worst_degraded[1]['ap50_improvement']:.4f}, {worst_degraded[1]['ap50_improvement_pct']:+.2f}%)")
+
+    print(f"{'='*80}\n")
+
+    return comparison
+
+
 def main():
     """메인 엔트리 포인트"""
     try:
         print(f"\n=== YOLO Model Retraining Process Started ===")
-        
+
         # Step 1: Train model
-        train_model()
-        
-        # Step 2: Evaluate and compare
+        # train_model()
+
+        # Step 2: Evaluate and compare overall metrics
         print(f"\n=== Evaluating Old and New Models ===")
-        evaluate_old_and_new_models()
-        
+        eval_results = evaluate_old_and_new_models()
+
+        # Step 3: Compare per-class performance
+        if eval_results and eval_results.get('old_model') and eval_results.get('new_model'):
+            print(f"\n=== Per-Class Performance Comparison ===")
+            compare_per_class_performance(
+                old_results=eval_results['old_model'],
+                new_results=eval_results['new_model']
+            )
+        else:
+            print("\nSkipping per-class comparison - evaluation results not available")
+
         print(f"\n=== YOLO Model Retraining Finished ===\n")
-    
+
     except Exception as e:
         import traceback
         print("[ERROR] Model retraining failed!")
