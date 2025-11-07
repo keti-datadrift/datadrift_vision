@@ -25,6 +25,27 @@ from vision_analysis.class_names_yolo80n import TEXT_LABELS_80
 class_names_list = None
 class_names_list = list(TEXT_LABELS_80.values())
 
+# Load datasets base path from config
+def get_datasets_base_path():
+    """
+    Load datasets base path from config.yaml
+    Falls back to old location if not specified in config
+    """
+    config_path = os.path.join(base_abspath, "config.yaml")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        datasets_config = config.get("datasets", {})
+        datasets_base = datasets_config.get("base_path", None)
+        if datasets_base:
+            return datasets_base
+    # Fallback to old location inside project
+    return os.path.join(base_abspath, "datasets")
+
+# Global datasets base path
+DATASETS_BASE_PATH = get_datasets_base_path()
+print(f"Using datasets base path: {DATASETS_BASE_PATH}")
+
 def extract_class_names_from_labels(labels_dirs):
     """
     레이블 파일에서 사용된 클래스 ID를 추출하고 YOLO80 클래스명으로 매핑
@@ -66,7 +87,7 @@ def get_dataset_version():
     DataOps: Generate dataset version based on existing versions
     Returns: version string (e.g., 'v1', 'v2', 'v3')
     """
-    dataset_base = Path(base_abspath) / "datasets" / "splitted"
+    dataset_base = Path(DATASETS_BASE_PATH) / "splitted"
 
     if not dataset_base.exists():
         return "v1"
@@ -148,25 +169,31 @@ def get_previous_model_info():
         return None, None  # ✅ Return BOTH values even on error
 
 
-def merge_and_split_datasets(source_dirs, output_dir="datasets/splitted",
+def merge_and_split_datasets(source_dirs, output_dir=None,
                              train_ratio=0.7, val_ratio=0.15, test_ratio=0.15,
                              max_samples=None, random_seed=42):
     """여러 데이터셋을 머지하고 train/val/test로 분할"""
     import random
-    
+
     print(f"\n[{datetime.now()}] Starting dataset merge and split...")
     print(f"Split ratio - Train: {train_ratio}, Val: {val_ratio}, Test: {test_ratio}")
     if max_samples:
         print(f"Max samples limit: {max_samples}")
-    
-    output_path = Path(base_abspath) / output_dir
+
+    # Use DATASETS_BASE_PATH for output
+    if output_dir is None:
+        output_path = Path(DATASETS_BASE_PATH) / "splitted"
+    else:
+        output_path = Path(output_dir)
+
     for split in ['train', 'val', 'test']:
         (output_path / split / 'images').mkdir(parents=True, exist_ok=True)
         (output_path / split / 'labels').mkdir(parents=True, exist_ok=True)
-    
+
     all_pairs = []
     for src_dir in source_dirs:
-        src_path = Path(base_abspath) / src_dir
+        # src_dir is now expected to be an absolute path
+        src_path = Path(src_dir)
         images_dir = src_path / 'images'
         labels_dir = src_path / 'labels'
         
@@ -215,16 +242,33 @@ def merge_and_split_datasets(source_dirs, output_dir="datasets/splitted",
         for pair in pairs:
             dest_img = output_path / split_name / 'images' / pair['image'].name
             src_img = str(pair['image'])
-            # Remove if exists
+
+            # Skip if source doesn't exist
+            if not os.path.exists(src_img):
+                print(f"Warning: Source image not found: {src_img}")
+                continue
+
+            # Remove destination if exists (with retry logic for Windows file locks)
             if os.path.exists(dest_img):
-                os.remove(dest_img)
-                time.sleep(0.01)
-            # shutil.copy2(pair['image'], dest_img)
+                try:
+                    os.remove(dest_img)
+                    time.sleep(0.01)
+                except PermissionError:
+                    # If file is locked, skip it (it's already there from a previous run)
+                    print(f"Warning: File is locked, skipping: {dest_img}")
+                    continue
+
             shutil.copy2(src_img, dest_img)
 
-            
             dest_label = output_path / split_name / 'labels' / pair['label'].name
-            shutil.copy2(pair['label'], dest_label)
+            src_label = str(pair['label'])
+
+            # Skip if label source doesn't exist
+            if not os.path.exists(src_label):
+                print(f"Warning: Source label not found: {src_label}")
+                continue
+
+            shutil.copy2(src_label, dest_label)
         
         stats[split_name] = len(pairs)
     
@@ -294,7 +338,7 @@ def get_latest_merged_dataset():
     DataOps: Find the latest merged dataset YAML file
     Returns: (yaml_path, version) or (None, None) if not found
     """
-    merged_base = Path(base_abspath) / "datasets" / "merged_data"
+    merged_base = Path(DATASETS_BASE_PATH) / "merged_data"
 
     if not merged_base.exists():
         return None, None
@@ -318,6 +362,99 @@ def get_latest_merged_dataset():
     return str(latest_yaml), version
 
 
+def clean_merged_data_directory(output_dir):
+    """
+    Clean up the merged_data directory to prevent dataset accumulation
+    Deletes the entire merged_data directory completely
+    """
+    output_path = Path(output_dir)
+
+    if not output_path.exists():
+        print(f"\n{'='*60}")
+        print("MERGED DATA - Directory does not exist")
+        print(f"{'='*60}")
+        print(f"  Will be created fresh")
+        print(f"{'='*60}\n")
+        return
+
+    print(f"\n{'='*60}")
+    print("DELETING ENTIRE MERGED_DATA DIRECTORY")
+    print(f"{'='*60}")
+
+    # Count total files before deletion
+    total_files = 0
+    for split in ['train', 'val', 'test']:
+        images_dir = output_path / split / 'images'
+        labels_dir = output_path / split / 'labels'
+        img_count = len(list(images_dir.glob('*'))) if images_dir.exists() else 0
+        lbl_count = len(list(labels_dir.glob('*'))) if labels_dir.exists() else 0
+        total_files += img_count + lbl_count
+        if img_count > 0 or lbl_count > 0:
+            print(f"  {split}: {img_count} images, {lbl_count} labels")
+
+    print(f"  Total files: {total_files}")
+    print(f"  Deleting entire directory: {output_path}")
+
+    # Delete entire directory with error handler for Windows
+    def handle_remove_readonly(func, path, _exc):
+        """Error handler for Windows readonly files"""
+        import stat
+        try:
+            os.chmod(path, stat.S_IWUSR | stat.S_IWRITE)
+            func(path)
+        except Exception as e:
+            print(f"    Warning: Could not delete {path}: {e}")
+
+    try:
+        shutil.rmtree(output_path, onerror=handle_remove_readonly)
+        print(f"✅ Entire directory deleted successfully")
+    except Exception as e:
+        print(f"❌ Error deleting directory: {e}")
+        print(f"   Some files may be locked by another process")
+        print(f"   Attempting alternative cleanup method...")
+
+        # Alternative: Try to delete as many files as possible
+        import stat
+        deleted_count = 0
+        failed_count = 0
+
+        for split in ['train', 'val', 'test']:
+            for subdir in ['images', 'labels']:
+                dir_path = output_path / split / subdir
+                if dir_path.exists():
+                    for file in dir_path.glob('*'):
+                        try:
+                            # Force remove readonly attribute
+                            os.chmod(file, stat.S_IWUSR | stat.S_IWRITE)
+                            file.unlink()
+                            deleted_count += 1
+                        except Exception:
+                            failed_count += 1
+
+        if deleted_count > 0:
+            print(f"   Deleted {deleted_count} files, {failed_count} failed")
+
+        # Try to remove empty directories
+        try:
+            for split in ['train', 'val', 'test']:
+                for subdir in ['images', 'labels']:
+                    dir_path = output_path / split / subdir
+                    if dir_path.exists() and not any(dir_path.iterdir()):
+                        dir_path.rmdir()
+
+                split_path = output_path / split
+                if split_path.exists() and not any(split_path.iterdir()):
+                    split_path.rmdir()
+
+            if output_path.exists() and not any(output_path.iterdir()):
+                output_path.rmdir()
+                print(f"✅ Cleaned up directory structure")
+        except Exception:
+            pass
+
+    print(f"{'='*60}\n")
+
+
 def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="datasets/merged_data",
                          new_ratio=1, old_ratio=3, random_seed=42, use_latest_merged=False):
     """
@@ -337,8 +474,12 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
     """
     import random
 
-    # Determine which base dataset to use
+    # Clean up old merged data to prevent accumulation
+    clean_merged_data_directory(output_dir)
+
+    # Determine which base dataset to use - ALWAYS USE COCO, NOT PREVIOUS MERGED
     base_type = "coco"
+    use_latest_merged = False  # Force to always use COCO to prevent accumulation
     if use_latest_merged:
         latest_merged, _ = get_latest_merged_dataset()
         if latest_merged:
@@ -377,7 +518,8 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
         coco_data = yaml.safe_load(f)
 
     # Create output directory structure
-    output_path = Path(base_abspath) / output_dir
+    # output_dir is now expected to be an absolute path
+    output_path = Path(output_dir)
     for split in ['train', 'val', 'test']:
         (output_path / split / 'images').mkdir(parents=True, exist_ok=True)
         (output_path / split / 'labels').mkdir(parents=True, exist_ok=True)
@@ -467,24 +609,45 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
         # Copy files to output directory
         print(f"  Copying {len(all_pairs)} files...")
         copied_count = 0
+        seen_filenames = set()  # Track unique filenames to prevent duplicates
 
-        for pair in all_pairs:
+        for idx, pair in enumerate(all_pairs):
+            # Skip if source files don't exist
+            src_img = str(pair['image'])
+            src_label = str(pair['label'])
+
+            if not os.path.exists(src_img):
+                print(f"  Warning: Source image not found: {src_img}")
+                continue
+
+            if not os.path.exists(src_label):
+                print(f"  Warning: Source label not found: {src_label}")
+                continue
+
             # Generate unique filename to avoid conflicts
             source_prefix = 'new_' if pair['source'] == 'new' else 'coco_'
             base_name = pair['image'].stem
             ext = pair['image'].suffix
 
-            dest_img = output_path / split / 'images' / f"{source_prefix}{base_name}{ext}"
-            dest_label = output_path / split / 'labels' / f"{source_prefix}{base_name}.txt"
+            # Use index to ensure uniqueness instead of copied_count
+            unique_name = f"{source_prefix}{base_name}"
 
-            # Copy image
-            if dest_img.exists():
-                dest_img = output_path / split / 'images' / f"{source_prefix}{base_name}_{copied_count}{ext}"
-                dest_label = output_path / split / 'labels' / f"{source_prefix}{base_name}_{copied_count}.txt"
+            # If filename already seen, append unique index
+            if unique_name in seen_filenames:
+                unique_name = f"{source_prefix}{base_name}_{idx}"
 
-            shutil.copy2(pair['image'], dest_img)
-            shutil.copy2(pair['label'], dest_label)
-            copied_count += 1
+            seen_filenames.add(unique_name)
+
+            dest_img = output_path / split / 'images' / f"{unique_name}{ext}"
+            dest_label = output_path / split / 'labels' / f"{unique_name}.txt"
+
+            try:
+                shutil.copy2(src_img, dest_img)
+                shutil.copy2(src_label, dest_label)
+                copied_count += 1
+            except Exception as e:
+                print(f"  Warning: Failed to copy {src_img}: {e}")
+                continue
 
         stats[split] = {
             'new': len(selected_new),
@@ -570,17 +733,17 @@ def train_model():
 
     print(f"[{datetime.now()}] Starting merge_and_split_datasets...")
     merge_and_split_datasets([
-        'datasets/collected/good_images',
-        'datasets/collected/wronged_images'
+        os.path.join(DATASETS_BASE_PATH, 'collected', 'good_images'),
+        os.path.join(DATASETS_BASE_PATH, 'collected', 'wronged_images')
     ])
 
     # ===== OPTION 1: Merge with COCO dataset (First Time - 1:3 ratio) =====
     # Uncomment below for FIRST RUN to merge with COCO dataset
     #
     # merge_result = merge_new_with_coco(
-    #     new_data_yaml_path=os.path.join(base_abspath, "datasets/splitted/data.yaml"),
-    #     coco_yaml_path=os.path.join(base_abspath, "datasets/coco/coco.yaml"),  # Update path
-    #     output_dir="datasets/merged_data",
+    #     new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted/data.yaml"),
+    #     coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "coco/coco.yaml"),  # Update path
+    #     output_dir=os.path.join(DATASETS_BASE_PATH, "merged_data"),
     #     new_ratio=1,
     #     old_ratio=3,
     #     random_seed=42,
@@ -591,11 +754,11 @@ def train_model():
 
     # ===== OPTION 2: Merge with Latest Merged Dataset (Subsequent Runs) =====
     # Uncomment below for SUBSEQUENT RUNS to merge with latest merged dataset
-    
+
     merge_result = merge_new_with_coco(
-        new_data_yaml_path=os.path.join(base_abspath, "datasets/splitted/data.yaml"),
-        coco_yaml_path=os.path.join(base_abspath, "datasets/cocox/coco.yaml"),  # Fallback
-        output_dir="datasets/merged_data",
+        new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
+        coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "cocox", "coco.yaml"),  # Fallback
+        output_dir=os.path.join(DATASETS_BASE_PATH, "merged_data"),
         new_ratio=1,
         old_ratio=3,
         random_seed=42,
@@ -723,10 +886,12 @@ def train_model():
     
     # DON'T delete runs directory - we need it for comparison!
     # Instead, YOLO will create a new numbered subfolder
-    
+
     # Load appropriate model
-    use_previous_model = USE_PREV_MODEL
-    if use_previous_model:
+    # Only use previous model if USE_PREV_MODEL is True AND prev_model_path exists
+    use_previous_model_final = USE_PREV_MODEL and prev_model_path is not None and os.path.exists(prev_model_path)
+
+    if use_previous_model_final:
         print(f"\n🔄 Fine-tuning mode: Loading previous trained model")
         model = YOLO(prev_model_path)
         lr0 = 0.001  # Low LR for fine-tuning
@@ -735,6 +900,8 @@ def train_model():
         print(f"   Learning rate: {lr0}")
     else:
         print(f"\n🆕 Fresh training mode: Loading base model")
+        if USE_PREV_MODEL and prev_model_path is None:
+            print(f"   Note: USE_PREV_MODEL=True but no previous model found")
         model = YOLO(YOLO_MODEL)
         lr0 = 0.001  # Higher LR for fresh training
         lrf = 0.01
@@ -761,10 +928,13 @@ def train_model():
     results = model.train(
         # 데이터
         data=yaml_path,  # ⭐ 병합된 데이터 사용
-        
+        cache=False,  # Cache images for faster training (first epoch will be slower)
+
         # 기본 파라미터
-        epochs=20,
-        patience=10,             # 조기 종료
+        # epochs=20,
+        # patience=10,             # 조기 종료
+        epochs=5,
+        patience=3,             # 조기 종료
         imgsz=640,
         batch=16,
         
@@ -893,8 +1063,8 @@ def evaluate_model(model_path, test_data_yaml=None, test_images_dir=None):
 
 def evaluate_old_and_new_models():
     """구 모델과 신규 학습된 모델을 테스트 세트로 평가하여 비교"""
-    test_images_dir = os.path.join(base_abspath, "datasets", "splitted", "test", "images")
-    
+    test_images_dir = os.path.join(DATASETS_BASE_PATH, "splitted", "test", "images")
+
     if not os.path.exists(test_images_dir):
         print(f"Error: Test images directory not found at {test_images_dir}")
         return None
@@ -1057,6 +1227,281 @@ def count_images_and_instances_from_labels(test_labels_dir):
     return image_counts, instance_counts
 
 
+def check_model_update_criteria(eval_results, per_class_comparison):
+    """
+    Check if new model meets the update criteria
+
+    Args:
+        eval_results: Dictionary containing old and new model evaluation results
+        per_class_comparison: Dictionary containing per-class comparison statistics
+
+    Returns:
+        tuple: (should_update: bool, reason: str)
+    """
+    # Load config
+    config_path = os.path.join(base_abspath, "config.yaml")
+    if not os.path.exists(config_path):
+        return False, "Config file not found"
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    # Get update configuration
+    model_update_config = config.get("model_update", {})
+    overall_threshold = float(model_update_config.get("overall_map_threshold", 0.03))
+    criteria_class_threshold = float(model_update_config.get("criteria_class_map_threshold", 0.03))
+    auto_update = model_update_config.get("auto_update", True)
+
+    # Get criteria class
+    criteria_class = config.get("yolo_model", {}).get("criteria_classes", "person")
+
+    if not auto_update:
+        return False, "Auto-update is disabled in config"
+
+    if not eval_results or not eval_results.get('old_model') or not eval_results.get('new_model'):
+        return False, "Evaluation results not available"
+
+    # Check overall mAP50-95 improvement
+    old_metrics = eval_results['old_model'].box if hasattr(eval_results['old_model'], 'box') else None
+    new_metrics = eval_results['new_model'].box if hasattr(eval_results['new_model'], 'box') else None
+
+    if not old_metrics or not new_metrics:
+        return False, "Model metrics not available"
+
+    overall_map_improvement = new_metrics.map - old_metrics.map
+
+    print(f"\n{'='*80}")
+    print("MODEL UPDATE CRITERIA CHECK")
+    print(f"{'='*80}")
+    print(f"Overall mAP50-95 improvement: {overall_map_improvement:+.4f} (threshold: {overall_threshold:.4f})")
+
+    if overall_map_improvement < overall_threshold:
+        reason = f"Overall mAP50-95 improvement ({overall_map_improvement:.4f}) below threshold ({overall_threshold:.4f})"
+        print(f"❌ {reason}")
+        print(f"{'='*80}\n")
+        return False, reason
+
+    print(f"✅ Overall mAP50-95 improvement meets threshold")
+
+    # Check criteria class improvement
+    if not per_class_comparison:
+        return False, "Per-class comparison not available"
+
+    # Find criteria class in comparison
+    criteria_class_data = None
+    criteria_class_idx = None
+
+    for cls_idx, data in per_class_comparison.items():
+        if data['class_name'].lower() == criteria_class.lower():
+            criteria_class_data = data
+            criteria_class_idx = cls_idx
+            break
+
+    if not criteria_class_data:
+        reason = f"Criteria class '{criteria_class}' not found in comparison"
+        print(f"❌ {reason}")
+        print(f"{'='*80}\n")
+        return False, reason
+
+    criteria_class_improvement = criteria_class_data['ap_improvement']
+
+    print(f"Criteria class '{criteria_class}' mAP50-95 improvement: {criteria_class_improvement:+.4f} (threshold: {criteria_class_threshold:.4f})")
+
+    if criteria_class_improvement < criteria_class_threshold:
+        reason = f"Criteria class '{criteria_class}' improvement ({criteria_class_improvement:.4f}) below threshold ({criteria_class_threshold:.4f})"
+        print(f"❌ {reason}")
+        print(f"{'='*80}\n")
+        return False, reason
+
+    print(f"✅ Criteria class improvement meets threshold")
+    print(f"\n{'='*80}")
+    print("🎉 ALL CRITERIA MET - Model will be updated!")
+    print(f"{'='*80}\n")
+
+    reason = f"Overall improvement: {overall_map_improvement:.4f}, Criteria class improvement: {criteria_class_improvement:.4f}"
+    return True, reason
+
+
+def update_production_model():
+    """
+    Update the production model with the newly trained model
+
+    Steps:
+    1. Find the latest trained model
+    2. Backup current production model
+    3. Generate versioned filename for new model
+    4. Copy new model to production location with versioned name
+    5. Update config.yaml to point to new versioned model
+
+    Returns:
+        bool: True if update successful, False otherwise
+    """
+    print(f"\n{'='*80}")
+    print("UPDATING PRODUCTION MODEL")
+    print(f"{'='*80}\n")
+
+    # Load config
+    config_path = os.path.join(base_abspath, "config.yaml")
+    if not os.path.exists(config_path):
+        print("Error: Config file not found")
+        return False
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    # Get backup setting
+    backup_old_model = config.get("model_update", {}).get("backup_old_model", True)
+
+    # Find latest trained model
+    runs_base_dir = os.path.join(base_abspath, "runs")
+    if not os.path.exists(runs_base_dir):
+        print("Error: No training runs found")
+        return False
+
+    subdirs = [d for d in os.listdir(runs_base_dir)
+               if os.path.isdir(os.path.join(runs_base_dir, d)) and d.startswith('retrain')]
+
+    if not subdirs:
+        print("Error: No retrain folders found")
+        return False
+
+    latest_dir = max([os.path.join(runs_base_dir, d) for d in subdirs], key=os.path.getmtime)
+
+    possible_paths = [
+        os.path.join(latest_dir, "weights", "best.pt"),
+        os.path.join(latest_dir, "best.pt")
+    ]
+
+    new_model_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            new_model_path = path
+            break
+
+    if not new_model_path:
+        print(f"Error: No model found in {latest_dir}")
+        return False
+
+    print(f"New trained model: {new_model_path}")
+
+    # Get current production model path
+    current_model_name = config["yolo_model"]["model_name"]
+    current_model_path = os.path.join(base_abspath, current_model_name)
+
+    print(f"Current production model: {current_model_path}")
+
+    # Move current model to backups if it exists
+    backup_dir = os.path.join(base_abspath, "model", "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    if backup_old_model and os.path.exists(current_model_path):
+        model_basename = os.path.basename(current_model_path)
+
+        # Check if current model is a versioned model (contains timestamp and version)
+        # Format: yolov8nGender_20250107_v1.pt
+        if '_v' in model_basename and len(model_basename.split('_')) >= 3:
+            # It's a versioned model, move it to backups with original name
+            backup_path = os.path.join(backup_dir, model_basename)
+            shutil.move(current_model_path, backup_path)
+            print(f"✅ Moved old versioned model to backups: {backup_path}")
+        else:
+            # It's a non-versioned model (e.g., yolov8nGender.pt), back it up with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, f"{os.path.splitext(model_basename)[0]}_{timestamp}.pt")
+            shutil.move(current_model_path, backup_path)
+            print(f"✅ Moved old model to backups: {backup_path}")
+
+    # Generate versioned filename for new model
+    timestamp = datetime.now().strftime("%Y%m%d")
+    model_dir = os.path.dirname(current_model_path)
+    current_basename = os.path.basename(current_model_path)
+
+    # Extract base model name without version/timestamp if present
+    # Handle both "yolov8nGender.pt" and "yolov8nGender_20250107_v1.pt"
+    if '_v' in current_basename and len(current_basename.split('_')) >= 3:
+        # Extract base name from versioned model: yolov8nGender_20250107_v1.pt -> yolov8nGender
+        parts = current_basename.split('_')
+        # Find the index where timestamp starts (8 digit number)
+        for i, part in enumerate(parts):
+            if len(part) == 8 and part.isdigit():
+                model_name_without_ext = '_'.join(parts[:i])
+                break
+        else:
+            # Fallback if pattern not found
+            model_name_without_ext = os.path.splitext(current_basename)[0]
+    else:
+        # Non-versioned model
+        model_name_without_ext = os.path.splitext(current_basename)[0]
+
+    # Find existing versioned models to determine next version number
+    model_pattern = f"{model_name_without_ext}_{timestamp}_v*.pt"
+    existing_versions = glob(os.path.join(model_dir, model_pattern))
+
+    if existing_versions:
+        # Extract version numbers and find the max
+        version_numbers = []
+        for ver_path in existing_versions:
+            basename = os.path.basename(ver_path)
+            # Extract version number from filename like "yolov8nGender_20250107_v1.pt"
+            try:
+                version_str = basename.split('_v')[-1].replace('.pt', '')
+                version_numbers.append(int(version_str))
+            except:
+                pass
+
+        if version_numbers:
+            next_version = max(version_numbers) + 1
+        else:
+            next_version = 1
+    else:
+        next_version = 1
+
+    # Generate new versioned model filename
+    versioned_model_name = f"{model_name_without_ext}_{timestamp}_v{next_version}.pt"
+    versioned_model_path = os.path.join(model_dir, versioned_model_name)
+
+    print(f"New versioned model name: {versioned_model_name}")
+
+    # Copy new model to production location with versioned name
+    try:
+        shutil.copy2(new_model_path, versioned_model_path)
+        print(f"✅ Copied new model to: {versioned_model_path}")
+    except Exception as e:
+        print(f"❌ Error copying model: {e}")
+        return False
+
+    # Update config.yaml to point to new versioned model and record timestamp
+    try:
+        # Update the model_name in config
+        relative_model_path = os.path.join(".", "model", versioned_model_name)
+        config["yolo_model"]["model_name"] = relative_model_path
+
+        # Record the update timestamp in ISO 8601 format
+        update_timestamp = datetime.now().isoformat()
+        config["yolo_model"]["last_model_update"] = update_timestamp
+
+        # Write updated config back to file
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        print(f"✅ Updated config.yaml with new model path: {relative_model_path}")
+        print(f"✅ Recorded model update timestamp: {update_timestamp}")
+    except Exception as e:
+        print(f"❌ Error updating config.yaml: {e}")
+        return False
+
+    print(f"\n{'='*80}")
+    print("✅ PRODUCTION MODEL UPDATE COMPLETED!")
+    print(f"{'='*80}")
+    print(f"Production model updated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Model path: {versioned_model_path}")
+    print(f"Config updated to: {relative_model_path}")
+    print(f"Update timestamp: {update_timestamp}")
+    print(f"{'='*80}\n")
+
+    return True
+
+
 def compare_per_class_performance(old_results, new_results, class_names=None):
     """
     클래스별 성능 비교 (Old vs New 모델)
@@ -1103,7 +1548,7 @@ def compare_per_class_performance(old_results, new_results, class_names=None):
     new_ap = new_metrics.ap
 
     # Count images and instances from test dataset labels
-    test_labels_dir = os.path.join(base_abspath, "datasets", "splitted", "test", "labels")
+    test_labels_dir = os.path.join(DATASETS_BASE_PATH, "splitted", "test", "labels")
     image_counts, instance_counts = count_images_and_instances_from_labels(test_labels_dir)
 
     print(f"Loaded from test set: {len(image_counts)} classes with data")
@@ -1229,21 +1674,42 @@ def main():
         print(f"\n=== YOLO Model Retraining Process Started ===")
 
         # Step 1: Train model
-        # train_model()
+        train_model()
 
         # Step 2: Evaluate and compare overall metrics
         print(f"\n=== Evaluating Old and New Models ===")
         eval_results = evaluate_old_and_new_models()
 
         # Step 3: Compare per-class performance
+        per_class_comparison = None
         if eval_results and eval_results.get('old_model') and eval_results.get('new_model'):
             print(f"\n=== Per-Class Performance Comparison ===")
-            compare_per_class_performance(
+            per_class_comparison = compare_per_class_performance(
                 old_results=eval_results['old_model'],
                 new_results=eval_results['new_model']
             )
         else:
             print("\nSkipping per-class comparison - evaluation results not available")
+
+        # Step 4: Check model update criteria and update if met
+        if eval_results and per_class_comparison:
+            should_update, reason = check_model_update_criteria(eval_results, per_class_comparison)
+
+            if should_update:
+                print(f"\n=== Updating Production Model ===")
+                print(f"Reason: {reason}")
+                update_success = update_production_model()
+
+                if update_success:
+                    print("\n✅ Production model has been successfully updated!")
+                    print("   The new model will be used in production (yolo_producer_fastapi.py)")
+                    print("   NOTE: You may need to restart the yolo_producer_fastapi service for changes to take effect.")
+                else:
+                    print("\n❌ Failed to update production model")
+            else:
+                print(f"\n=== Model Update Skipped ===")
+                print(f"Reason: {reason}")
+                print("The current production model will continue to be used.")
 
         print(f"\n=== YOLO Model Retraining Finished ===\n")
 
