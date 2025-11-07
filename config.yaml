@@ -1,6 +1,8 @@
 datadrift_table: datadrift_db
 datasets:
   base_path: E:/datadrift_project/datasets
+  objdet_save_data: false
+  use_last_merged_data: true
 server:
   ip: 0.0.0.0
   port: 18880
@@ -24,12 +26,12 @@ yolo_model:
   conf_thresh: 0.3
   allow_classes: all
   criteria_classes: person
-  last_model_update: '2025-11-07T18:39:04.383172'
+  last_model_update: '2025-11-07T20:59:28.181244'
 model_update:
   overall_map_threshold: 0.0
   criteria_class_map_threshold: 0.01
   auto_update: true
-  backup_old_model: true
+  backup_old_model: false
   config_check_interval: 5.0
 drift_detection:
   drift_check_period: 1 days

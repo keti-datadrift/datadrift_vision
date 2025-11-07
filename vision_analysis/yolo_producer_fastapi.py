@@ -32,6 +32,10 @@ from vision_analysis.class_names_yolo80n import TEXT_LABELS_80
 with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
+
+objdet_save_data = config['datasets']['objdet_save_data']
+
+
 # FastAPI 서버 정보
 # FASTAPI_HOST = config.get("fastapi", {}).get("host", "localhost")
 VLM_HOST = "172.16.15.189"
@@ -448,25 +452,26 @@ def main():
             if not frame_b64:
                 print("[Warning] No frame_b64 found in response")
                 return {"status": "error", "message": "No frame_b64 provided"}
+            if objdet_save_data == True:
+                ok = save_full_frame_with_annotation(
+                    frame_b64=frame_b64,
+                    save_dir=save_dir,
+                    frame_id=frame_id,
+                    # camera_name=camera_name,
+                    # class_name=class_name,
+                    # confidence=confidence,
+                    bboxes=bboxes_filtered_new,
+                    # description=description,
+                    # event_time=event_time,
+                    )
 
-            ok = save_full_frame_with_annotation(
-                frame_b64=frame_b64,
-                save_dir=save_dir,
-                frame_id=frame_id,
-                # camera_name=camera_name,
-                # class_name=class_name,
-                # confidence=confidence,
-                bboxes=bboxes_filtered_new,
-                # description=description,
-                # event_time=event_time,
-                )
+                if not ok:
+                    # return {"status": "error", "message": "Failed to save frame or annotation"}
+                    print("error!!!, Failed to save frame or annotation")
 
-            if not ok:
-                # return {"status": "error", "message": "Failed to save frame or annotation"}
-                print("error!!!, Failed to save frame or annotation")
-
-            # return {"status": "success", "message": f"Saved to {save_dir}"}
-            print(f"success Saved to {save_dir}")
+                # return {"status": "success", "message": f"Saved to {save_dir}"}
+                print(f"success Saved to {save_dir}")
+                
             if SHOW_PREVIEW:
                 cv2.imshow("YOLO Producer", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):

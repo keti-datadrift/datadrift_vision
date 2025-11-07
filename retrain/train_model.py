@@ -737,24 +737,20 @@ def train_model():
         os.path.join(DATASETS_BASE_PATH, 'collected', 'wronged_images')
     ])
 
-    # ===== OPTION 1: Merge with COCO dataset (First Time - 1:3 ratio) =====
-    # Uncomment below for FIRST RUN to merge with COCO dataset
-    #
-    # merge_result = merge_new_with_coco(
-    #     new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted/data.yaml"),
-    #     coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "coco/coco.yaml"),  # Update path
-    #     output_dir=os.path.join(DATASETS_BASE_PATH, "merged_data"),
-    #     new_ratio=1,
-    #     old_ratio=3,
-    #     random_seed=42,
-    #     use_latest_merged=False  # First time: use COCO
-    # )
-    # dataset_dir = merge_result['output_dir']  # Use merged dataset for training
-    # =======================================================================
+    # Load config to get use_last_merged_data setting
+    config_path = os.path.join(base_abspath, "config.yaml")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        use_last_merged_data = config.get("datasets", {}).get("use_last_merged_data", False)
+    else:
+        use_last_merged_data = False
 
-    # ===== OPTION 2: Merge with Latest Merged Dataset (Subsequent Runs) =====
-    # Uncomment below for SUBSEQUENT RUNS to merge with latest merged dataset
+    print(f"\n{'='*60}")
+    print(f"Config: use_last_merged_data = {use_last_merged_data}")
+    print(f"{'='*60}\n")
 
+    # Merge with COCO or latest merged dataset based on config
     merge_result = merge_new_with_coco(
         new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
         coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "cocox", "coco.yaml"),  # Fallback
@@ -762,11 +758,10 @@ def train_model():
         new_ratio=1,
         old_ratio=3,
         random_seed=42,
-        use_latest_merged=True  # Use latest merged dataset
+        use_latest_merged=use_last_merged_data  # Read from config
     )
     dataset_dir = merge_result['output_dir']  # Use merged dataset for training
     yaml_filename = merge_result['yaml_filename']
-    # ===========================================================================
     yaml_path = os.path.join(dataset_dir, yaml_filename) 
     print(f"[{datetime.now()}] Starting YOLO model retraining...")
     
@@ -931,10 +926,10 @@ def train_model():
         cache=False,  # Cache images for faster training (first epoch will be slower)
 
         # 기본 파라미터
-        # epochs=20,
-        # patience=10,             # 조기 종료
-        epochs=5,
-        patience=3,             # 조기 종료
+        epochs=100,
+        patience=10,             # 조기 종료
+        # epochs=5,
+        # patience=3,             # 조기 종료
         imgsz=640,
         batch=16,
         
@@ -1248,7 +1243,7 @@ def check_model_update_criteria(eval_results, per_class_comparison):
 
     # Get update configuration
     model_update_config = config.get("model_update", {})
-    overall_threshold = float(model_update_config.get("overall_map_threshold", 0.03))
+    overall_threshold = float(model_update_config.get("overall_map_threshold", -1))
     criteria_class_threshold = float(model_update_config.get("criteria_class_map_threshold", 0.03))
     auto_update = model_update_config.get("auto_update", True)
 
@@ -1303,9 +1298,9 @@ def check_model_update_criteria(eval_results, per_class_comparison):
         print(f"{'='*80}\n")
         return False, reason
 
-    criteria_class_improvement = criteria_class_data['ap_improvement']
+    criteria_class_improvement = criteria_class_data['ap50_improvement_pct']
 
-    print(f"Criteria class '{criteria_class}' mAP50-95 improvement: {criteria_class_improvement:+.4f} (threshold: {criteria_class_threshold:.4f})")
+    print(f"Criteria class '{criteria_class}' mAP50 improvement: {criteria_class_improvement:+.4f} (threshold: {criteria_class_threshold:.4f})")
 
     if criteria_class_improvement < criteria_class_threshold:
         reason = f"Criteria class '{criteria_class}' improvement ({criteria_class_improvement:.4f}) below threshold ({criteria_class_threshold:.4f})"
