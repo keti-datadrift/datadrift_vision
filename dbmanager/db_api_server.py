@@ -199,24 +199,82 @@ async def db_insert_event(response: dict):
 
 @app.get("/api/db_check_drift/")
 async def db_check_drift(
-    period: str = Query("1 day", description="기간 (예: '1 day', '1 hour')"),
     class_name: str = Query("person", description="클래스명 (예: 'person', 'car')"),
     threshold: float = Query(0.3, description="drift 문턱치 (0~1 사이 비율)")
 ):
     """
     테이블에서 특정 기간 동안 특정 클래스를 조회하고,
-    vlm_valid == 'False' 비율이 threshold 이상이면 drift 발생으로 판단.
+    vlm_valid == 'no' 비율이 threshold 이상이면 drift 발생으로 판단.
+
+    단, 최근에 모델이 업데이트되었다면 (cooldown_after_update 기간 이내),
+    drift 계산을 수행하지 않고 스킵함.
     """
 
     try:
+        # Load config to get drift check parameters
+        with open(base_abspath+'/config.yaml', encoding='utf-8') as f:
+            config = yaml.full_load(f)
+
+        # Get drift detection configuration
+        drift_config = config.get('drift_detection', {})
+        drift_check_period = drift_config.get('drift_check_period', '1 day')
+        cooldown_after_update = drift_config.get('cooldown_after_update', '1 day')
+
+        # Get last model update timestamp
+        last_model_update = config.get('yolo_model', {}).get('last_model_update', None)
+
+        # Check if model was recently updated (within cooldown period)
+        if last_model_update:
+            try:
+                from dateutil import parser
+                last_update_time = parser.isoparse(last_model_update)
+                now = datetime.now()
+
+                # Check if we're still within the cooldown period
+                # We'll use a database query to leverage PostgreSQL's interval arithmetic
+                conn, cur = connect_db()
+                if conn is None or cur is None:
+                    return {"status": "error", "message": "Database connection failed"}
+
+                # Check time difference using PostgreSQL
+                cooldown_query = """
+                SELECT CASE
+                    WHEN %s + INTERVAL %s > NOW() THEN TRUE
+                    ELSE FALSE
+                END AS within_cooldown
+                """
+                cur.execute(cooldown_query, (last_update_time, cooldown_after_update))
+                within_cooldown = cur.fetchone()[0]
+
+                if within_cooldown:
+                    cur.close()
+                    conn.close()
+                    return {
+                        "status": "skipped",
+                        "message": "Drift check skipped - model was recently updated",
+                        "class_name": class_name,
+                        "last_model_update": last_model_update,
+                        "cooldown_period": cooldown_after_update,
+                        "drift_detected": False,
+                        "reason": f"Model updated at {last_model_update}. Cooldown period: {cooldown_after_update}"
+                    }
+
+                # If we're past cooldown, proceed with drift check
+                cur.close()
+                conn.close()
+
+            except Exception as e:
+                print(f"Warning: Failed to parse last_model_update timestamp: {e}")
+                # Continue with drift check if timestamp parsing fails
+
+        # Proceed with normal drift detection
         conn, cur = connect_db()
-        period = "2 day"
         if conn is None or cur is None:
             return {"status": "error", "message": "Database connection failed"}
 
         # 최근 기간(예: 1 day, 1 hour)을 WHERE 조건으로 적용
         query = f"""
-        SELECT 
+        SELECT
             COUNT(*) FILTER (WHERE vlm_valid = 'no') AS false_count,
             COUNT(*) AS total_count
         FROM {table_name}
@@ -224,7 +282,7 @@ async def db_check_drift(
           AND created_at >= NOW() - INTERVAL %s;
         """
 
-        cur.execute(query, (class_name, period))
+        cur.execute(query, (class_name, drift_check_period))
         result = cur.fetchone()
 
         cur.close()
@@ -239,24 +297,26 @@ async def db_check_drift(
 
         if total_count == 0:
             return {
-                "status": "no_data", 
+                "status": "no_data",
                 "message": "조회 기간 동안 데이터가 없습니다.",
                 "class_name": class_name,
-                "period": period
+                "period": drift_check_period
             }
 
         false_ratio = false_count / total_count
+        print(f'======================false_ratio ={false_ratio},threshold={threshold}======================')
         drift_detected = false_ratio >= threshold
 
         return {
             "status": "success",
             "class_name": class_name,
-            "period": period,
+            "drift_check_period": drift_check_period,
             "total_count": total_count,
             "false_count": false_count,
             "false_ratio": round(false_ratio, 3),
             "threshold": threshold,
             "drift_detected": drift_detected,
+            "last_model_update": last_model_update,
             "message": f"Drift {'감지됨' if drift_detected else '정상'}"
         }
 

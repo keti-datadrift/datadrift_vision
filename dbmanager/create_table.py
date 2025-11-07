@@ -81,7 +81,7 @@ def create_db(conn,cur,TABLE_NAME):
         log_msg = f'Exception: {TABLE_NAME} create is failed, {traceback.format_exc()}'     
         print(log_msg)
 
-def main_create_vectordb():
+def do_create_table():
     conn,cur = connect_db()
     with open(base_abspath+'/config.yaml',encoding='utf-8') as f:
         config = yaml.full_load(f)
@@ -90,6 +90,6 @@ def main_create_vectordb():
         create_db(conn,cur, DD_TABLE_NAME)
 
 if __name__ == "__main__":
-    main_create_vectordb()
+    do_create_table()
     pass
 

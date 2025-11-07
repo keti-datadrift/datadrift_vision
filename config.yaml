@@ -1,62 +1,47 @@
-datadrift_table: 'datadrift_db'
-
+datadrift_table: datadrift_db
+datasets:
+  base_path: E:/datadrift_project/datasets
 server:
   ip: 0.0.0.0
   port: 18880
-
 postgres:
-  host: "127.0.0.1"
-  # host: "172.16.2.1"
-  # host: "172.16.15.189"
+  host: 127.0.0.1
   port: 5432
-  dbname: "postgres"
-  user: "postgres"
-  password: "postgres"
-
+  dbname: postgres
+  user: postgres
+  password: postgres
 redis:
-  host: "127.0.0.1"
+  host: 127.0.0.1
   port: 6379
   db: 0
-  objdet_stream: "object_detections"
-  vlm_stream: "vlm_verifications"
-
-########### for object detection ###########
+  objdet_stream: object_detections
+  vlm_stream: vlm_verifications
 video:
-  source: "0"
-  camera_id: "camera_1"
-
+  source: D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4
+  camera_id: '007'
 yolo_model:
-  # model_name: "./model/firesmoke_yolov8n_best.pt"
-  # model_name: "./model/yolov8n_local.pt"
-  # model_name: "./model/retrain3/weights/best.pt"
-  model_name: "./model/yolov8nGender.pt"
-  # model_name: "./model/genderdet_last.pt"
+  model_name: .\model\yolov8nGender_20251107_v1.pt
   conf_thresh: 0.3
-  allow_classes: "all" #"person" #,man,woman,car,fire,smoke,animal"
-
+  allow_classes: all
+  criteria_classes: person
+  last_model_update: '2025-11-07T18:39:04.383172'
+model_update:
+  overall_map_threshold: 0.0
+  criteria_class_map_threshold: 0.01
+  auto_update: true
+  backup_old_model: true
+  config_check_interval: 5.0
+drift_detection:
+  drift_check_period: 1 days
+  cooldown_after_update: 30 minutes
+  partition_create_hour: 23
+  partition_create_minute: 0
 preview:
   roi_jpeg_quality: 80
   show_preview: 1
-  
-########### vlm event recognizer ###########  
 clip_model:
-  model_name_low: "ViT-B/32" 
-  model_name_high: "ViT-L/14" 
-
-#OpenAI CLIP에서 자주 쓰는 모델 이름
-#"ViT-B/32" → 가장 가볍고 빠른 버전 (low)
-#"ViT-B/16" → 중간 성능/속도
-#"ViT-L/14" → 큰 모델, 더 정확 (high)
-#"ViT-L/14@336px" → 입력 해상도까지 키운 초고성능 버전
-
+  model_name_low: ViT-B/32
+  model_name_high: ViT-L/14
 vlm_intervals:
   interval_sec: 10
-  window_sec: 30  
-
-video:
-  # source: "D:/videos/single_tracking.mp4"
-  # source: "D:/videos/falldownfire.mp4"
-  # source: "D:/videos/u5setfire.mp4"
-  source: "D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4"
-  # source: "D:/videos/Caught in 4K! Funniest Security Camera Fails (1080p).mp4"
-  camera_id: "007"
+  window_sec: 30

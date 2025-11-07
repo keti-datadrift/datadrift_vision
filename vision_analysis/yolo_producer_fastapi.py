@@ -55,6 +55,9 @@ SHOW_PREVIEW = config["preview"]["show_preview"] == 1
 SHOW_PREVIEW = False
 FRAMES_PER_DRIFT_DETECTION = 30
 
+# Model update configuration
+CONFIG_CHECK_INTERVAL = float(config.get("model_update", {}).get("config_check_interval", 5.0))
+
 TABLE_NAME = config["datadrift_table"]
 def get_db_connection():
     # return psycopg2.connect(**config)
@@ -258,9 +261,33 @@ def b64_to_cv2(b64_str: str):
     img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
     return img
 
+def load_current_model_from_config():
+    """
+    Load the current model path from config.yaml
+    Returns the model path string
+    """
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        return config["yolo_model"]["model_name"]
+    except Exception as e:
+        print(f"[ERROR] Failed to read config.yaml: {e}")
+        return None
+
 def main():
     print(f"[m1] start YOLO producer:")# FastAPI={VLM_URL}, camera_id={CAMERA_ID}")
-    model = YOLO(YOLO_MODEL)
+
+    # Initialize model
+    current_model_path = YOLO_MODEL
+    model = YOLO(current_model_path)
+    print(f"[MODEL] Loaded initial model: {current_model_path}")
+
+    # Track last config check time and model reload
+    last_config_check_time = time.time()
+    config_check_interval = CONFIG_CHECK_INTERVAL
+    last_loaded_model_path = current_model_path
+
+    print(f"[CONFIG] Model update check interval: {config_check_interval} seconds")
 
     cap = cv2.VideoCapture(0 if VIDEO_SOURCE == "0" else VIDEO_SOURCE)
     if not cap.isOpened():
@@ -271,6 +298,34 @@ def main():
 
     try:
         while True:
+            # Periodically check if model has been updated in config
+            current_time = time.time()
+            if current_time - last_config_check_time > config_check_interval:
+                last_config_check_time = current_time
+
+                # Read current model path from config
+                config_model_path = load_current_model_from_config()
+
+                if config_model_path and config_model_path != last_loaded_model_path:
+                    # Model has changed, reload it
+                    try:
+                        print(f"\n{'='*80}")
+                        print(f"[MODEL UPDATE DETECTED]")
+                        print(f"  Old model: {last_loaded_model_path}")
+                        print(f"  New model: {config_model_path}")
+                        print(f"{'='*80}")
+
+                        # Load new model
+                        model = YOLO(config_model_path)
+                        last_loaded_model_path = config_model_path
+
+                        print(f"[MODEL] Successfully loaded new model: {config_model_path}")
+                        print(f"{'='*80}\n")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to load new model {config_model_path}: {e}")
+                        print(f"[MODEL] Continuing with previous model: {last_loaded_model_path}")
+
+            # Continue with normal frame processing
             ok, frame = cap.read()
             if not ok:
                 print("[m1] video read failed/broken. exiting.")

@@ -4,7 +4,7 @@ from pytz import timezone
 from datetime import datetime, timedelta
 import yaml
 from pathlib import Path
-from pgvec_lib import local_connect_db
+from dbmanager.pgvec_lib import local_connect_db
 
 import os
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))

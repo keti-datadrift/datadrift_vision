@@ -14,7 +14,7 @@ import os
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
 with open(base_abspath+'/config.yaml', encoding="utf-8") as f:
     config = yaml.full_load(f)
-    AIMEMO_TABLE_NAME = config['datadrift_table_name']
+    AIMEMO_TABLE_NAME = config['datadrift_table']
 
 def configure_logging(process_id):
     log_file = f"./process_{process_id}.log"
@@ -30,17 +30,17 @@ def configure_logging(process_id):
     pass
 
 def local_connect_db():
-    with open(base_abspath+'/config.yaml') as f:
+    with open(base_abspath+'/config.yaml', encoding="utf-8-sig") as f:
         config = yaml.full_load(f)
 
     conn = None
     cur = None
     try:        
-        host = config['local_host']
-        port = config['local_port']
-        dbname = config['local_dbname']
-        user = config['local_user']
-        password = config['local_password']     
+        host = config['postgres']['host']
+        port = config['postgres']['port']
+        dbname = config['postgres']['dbname']
+        user = config['postgres']['user']
+        password = config['postgres']['password']     
         # PostgreSQL 서버에 연결
         conn = psycopg2.connect(
             host=host,

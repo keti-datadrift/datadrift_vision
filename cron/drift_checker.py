@@ -110,10 +110,11 @@ def main():
         params = {
             "period": "1 day",
             "class_name": "person",
-            "threshold": 0.03
+            "threshold": 0.01
         }
 
         result = call_drift_api(drift_api_url, params)
+
         midlog_path = Path(__file__).parent / "logs/drift_midlog.jsonl"
         midlog_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -127,7 +128,8 @@ def main():
         # If drift detected → trigger retraining
         if result.get("status") == "success" and result.get("drift_detected", False):
             logging.warning("⚠️ Drift detected! Triggering retrain process...")
-            call_drift_api(retrain_api_url, {})
+            result = call_drift_api(retrain_api_url, {})
+            print(f'++++++++++++++++++++++++++ {result} ++++++++++++++++++++++++++')
             # Send email alert if enabled
             if config.get('alert', {}).get('email', {}).get('enabled', False):
                 try:
