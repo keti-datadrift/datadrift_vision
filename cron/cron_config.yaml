@@ -1,33 +1,100 @@
-# Configuration for drift detection cron job
+# ============================================================
+# DRIFT DETECTION CRON CONFIGURATION
+# ============================================================
+# 이 파일은 drift_scheduler와 drift_checker의 설정을 관리합니다.
+# 드리프트 감지 주기, API 서버 연결, 알림 설정 등을 포함합니다.
+# ============================================================
 
-# API Server settings
+# ------------------------------------------------------------
+# API Server Settings - DB API 서버 연결 설정
+# ------------------------------------------------------------
 api:
-  host: "localhost"
-  port: 8000
-  endpoint: "/api/db_check_drift/"
-  timeout: 30  # Request timeout in seconds
+  host: "localhost"  # db_api_server.py가 실행 중인 호스트
+                     # localhost: 같은 머신에서 실행
+                     # 192.168.x.x: 원격 서버 IP
 
-# Drift detection parameters
+  port: 8000  # db_api_server.py의 포트 (FastAPI 기본값: 8000)
+
+  endpoint: "/api/db_check_drift/"  # 드리프트 체크 API 엔드포인트
+                                     # 변경 시 db_api_server.py도 함께 수정 필요
+
+  timeout: 30  # API 요청 타임아웃 (초)
+               # 네트워크가 느리거나 대용량 데이터 분석 시 증가 필요
+
+# ------------------------------------------------------------
+# Drift Detection Parameters - 드리프트 감지 파라미터
+# ------------------------------------------------------------
 drift_params:
-  period: "1 day"              # Time period to check (e.g., "1 day", "12 hours", "1 hour")
-  event_name: "실시간 인식"     # Event name to filter
-  threshold: 0.03               # Drift threshold (0.0 to 1.0, e.g., 0.3 = 30%)
+  period: "1 day"  # 드리프트 분석 대상 데이터 기간
+                   # PostgreSQL interval 형식: "1 day", "12 hours", "2 days"
+                   # 너무 짧으면: 데이터 부족으로 부정확
+                   # 너무 길면: 드리프트 감지 지연
+                   # 권장: "1 day" (24시간 데이터 분석)
 
-# Logging settings
+  class_name: "person"  # 드리프트 모니터링 대상 클래스
+                        # 주의: config.yaml의 criteria_classes와 동일하게 설정!
+                        # 예: "person", "car", "dog" 등
+                        # 여러 클래스 감지 시 여러 drift_checker 인스턴스 실행 필요
+
+  threshold: 0.06  # 드리프트 임계값 (0.0 ~ 1.0)
+                   # false_ratio = 잘못 검출된 비율 (vlm_valid='no' / 전체)
+                   # false_ratio >= threshold 이면 드리프트 감지
+                   # 0.06 = 6% 이상 오탐지 시 드리프트로 판단
+                   # 낮을수록: 민감하게 감지 (재학습 빈번)
+                   # 높을수록: 둔감하게 감지 (재학습 드물게)
+
+  event_name: "실시간 인식"  # 이벤트 이름 필터 (레거시, 현재 미사용)
+                            # 향후 다중 이벤트 타입 구분용으로 확장 가능
+
+# ------------------------------------------------------------
+# Logging Settings - 로깅 설정
+# ------------------------------------------------------------
 logging:
-  log_file: "drift_scheduler.log"
-  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_file: "drift_scheduler.log"  # 로그 파일명 (cron/logs/ 디렉토리에 생성)
+                                    # 전체 경로: cron/logs/drift_scheduler.log
 
-# Alert settings
+  log_level: "INFO"  # 로그 레벨 선택
+                     # DEBUG: 모든 상세 정보 (디버깅용)
+                     # INFO: 일반 정보 (프로덕션 권장)
+                     # WARNING: 경고 이상
+                     # ERROR: 에러 이상
+                     # CRITICAL: 심각한 에러만
+
+# ------------------------------------------------------------
+# Alert Settings - 알림 설정
+# ------------------------------------------------------------
 alert:
-  enabled: true                # Enable alerts when drift is detected
-  Add additional alert configurations here:
+  enabled: true  # 전체 알림 활성화 여부
+                 # false로 설정 시 모든 알림 비활성화
+
+  # Email Alert Configuration - 이메일 알림 설정
   email:
-    enabled: false
-    smtp_server: "smtp.gmail.com"
-    smtp_port: 587
-    from_email: "alerts@example.com"
-    to_emails: ["admin@example.com"]
+    enabled: false  # 이메일 알림 활성화 여부
+                    # true: 드리프트 감지 시 이메일 발송
+                    # false: 이메일 발송 안 함
+
+    smtp_server: "smtp.gmail.com"  # SMTP 서버 주소
+                                    # Gmail: smtp.gmail.com
+                                    # Outlook: smtp.office365.com
+                                    # 사내 메일: smtp.company.com
+
+    smtp_port: 587  # SMTP 포트
+                    # 587: TLS/STARTTLS (일반적)
+                    # 465: SSL
+                    # 25: 비암호화 (비권장)
+
+    from_email: "alerts@example.com"  # 발신자 이메일 주소
+                                       # SMTP 인증용 계정과 동일해야 함
+
+    to_emails: ["admin@example.com"]  # 수신자 이메일 리스트
+                                       # 여러 명에게 발송 가능:
+                                       # ["admin1@example.com", "admin2@example.com"]
+
+  # Slack Alert Configuration - Slack 알림 설정 (향후 확장용)
   # slack:
-  #   enabled: false
+  #   enabled: false  # Slack 알림 활성화 여부
   #   webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  #   # Slack Incoming Webhook URL
+  #   # Slack 앱 설정에서 생성: https://api.slack.com/messaging/webhooks
+  #   channel: "#alerts"  # 알림을 받을 채널
+  #   username: "Drift Detection Bot"  # 봇 이름

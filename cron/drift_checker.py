@@ -18,9 +18,6 @@ from email_alert import send_drift_alert_email
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.append(base_abspath)
 
-db_host = "localhost"
-db_port = 8000
-
 
 def load_config():
     """Load configuration from cron_config.yaml"""
@@ -104,15 +101,23 @@ def main():
         logging.info("Starting drift detection check")
         logging.info("=" * 60)
 
+        # Get API server settings from config
+        api_config = config.get("api", {})
+        db_host = api_config.get("host", "localhost")
+        db_port = api_config.get("port", 8000)
+
         drift_api_url = f"http://{db_host}:{db_port}/api/db_check_drift/"
-        
         retrain_api_url = f"http://{db_host}:{db_port}/api/db_retrain/"
 
+        # Get drift detection parameters from config
+        drift_params = config.get("drift_params", {})
         params = {
-            "period": "1 day",
-            "class_name": "person",
-            "threshold": 0.06
+            "period": drift_params.get("period", "1 day"),
+            "class_name": drift_params.get("class_name", "person"),
+            "threshold": drift_params.get("threshold", 0.06)
         }
+
+        logging.info(f"Drift detection parameters: {params}")
 
         result = call_drift_api(drift_api_url, params)
 
@@ -137,7 +142,7 @@ def main():
         if result.get("status") == "success" and result.get("drift_detected", False):
             logging.warning("⚠️ Drift detected! Triggering retrain process...")
             result = call_drift_api(retrain_api_url, {})
-            print(f'++++++++++++++++++++++++++ {result} ++++++++++++++++++++++++++')
+            logging.info(f"Retrain API response: {result}")
             # Send email alert if enabled
             if config.get('alert', {}).get('email', {}).get('enabled', False):
                 try:
