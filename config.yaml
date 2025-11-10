@@ -1,8 +1,8 @@
 datadrift_table: datadrift_db
 datasets:
-  base_path: E:/datadrift_project/datasets
+  base_path: ../datasets
   objdet_save_data: false
-  use_last_merged_data: true
+  use_last_merged_data_4train: false
 server:
   ip: 0.0.0.0
   port: 18880
@@ -22,17 +22,17 @@ video:
   source: D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4
   camera_id: '007'
 yolo_model:
-  model_name: .\model\yolov8nGender_20251107_v1.pt
+  model_name: .\model\yolov8nGender_20251110_v1.pt
   conf_thresh: 0.3
   allow_classes: all
   criteria_classes: person
-  last_model_update: '2025-11-07T20:59:28.181244'
+  last_model_update: '2025-11-10T12:07:18.761351'
 model_update:
   overall_map_threshold: 0.0
   criteria_class_map_threshold: 0.01
   auto_update: true
   backup_old_model: false
-  config_check_interval: 5.0
+  config_check_interval: 10.0 #10초마다 모델 업데이트 config파일에서 체크
 drift_detection:
   drift_check_period: 1 days
   cooldown_after_update: 30 minutes

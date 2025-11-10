@@ -456,7 +456,7 @@ def clean_merged_data_directory(output_dir):
 
 
 def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="datasets/merged_data",
-                         new_ratio=1, old_ratio=3, random_seed=42, use_latest_merged=False):
+                         new_ratio=1, old_ratio=3, random_seed=42, use_latest_merged_to_make_new_dataset=False):
     """
     새로 생성된 데이터셋과 기존 데이터셋(COCO 또는 이전 merged)을 new:old 비율로 병합
 
@@ -479,8 +479,7 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
 
     # Determine which base dataset to use - ALWAYS USE COCO, NOT PREVIOUS MERGED
     base_type = "coco"
-    use_latest_merged = False  # Force to always use COCO to prevent accumulation
-    if use_latest_merged:
+    if use_latest_merged_to_make_new_dataset: # 최신 merged dadaset 생성을 위하여 예전의 merged dataset을 적용하기 위함
         latest_merged, _ = get_latest_merged_dataset()
         if latest_merged:
             coco_yaml_path = latest_merged
@@ -731,38 +730,43 @@ def train_model():
     YOLO 모델 재학습 함수 - FIXED VERSION
     """
 
-    print(f"[{datetime.now()}] Starting merge_and_split_datasets...")
-    merge_and_split_datasets([
-        os.path.join(DATASETS_BASE_PATH, 'collected', 'good_images'),
-        os.path.join(DATASETS_BASE_PATH, 'collected', 'wronged_images')
-    ])
-
-    # Load config to get use_last_merged_data setting
+    # Load config to get use_last_merged_data_4train setting
     config_path = os.path.join(base_abspath, "config.yaml")
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        use_last_merged_data = config.get("datasets", {}).get("use_last_merged_data", False)
+        use_last_merged_data_4train = config.get("datasets", {}).get("use_last_merged_data_4train", False)
     else:
-        use_last_merged_data = False
+        use_last_merged_data_4train = False
 
     print(f"\n{'='*60}")
-    print(f"Config: use_last_merged_data = {use_last_merged_data}")
+    print(f"Config: use_last_merged_data_4train = {use_last_merged_data_4train}")
     print(f"{'='*60}\n")
 
-    # Merge with COCO or latest merged dataset based on config
-    merge_result = merge_new_with_coco(
-        new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
-        coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "cocox", "coco.yaml"),  # Fallback
-        output_dir=os.path.join(DATASETS_BASE_PATH, "merged_data"),
-        new_ratio=1,
-        old_ratio=3,
-        random_seed=42,
-        use_latest_merged=use_last_merged_data  # Read from config
-    )
-    dataset_dir = merge_result['output_dir']  # Use merged dataset for training
-    yaml_filename = merge_result['yaml_filename']
-    yaml_path = os.path.join(dataset_dir, yaml_filename) 
+    if False==use_last_merged_data_4train:
+        print(f"[{datetime.now()}] Starting merge and split datasets...")
+        merge_and_split_datasets([
+            os.path.join(DATASETS_BASE_PATH, 'collected', 'good_images'),
+            os.path.join(DATASETS_BASE_PATH, 'collected', 'wronged_images')
+        ])
+
+        # Merge with COCO or latest merged dataset based on config
+        merge_result = merge_new_with_coco(
+            new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
+            coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "cocox", "coco.yaml"),  # Fallback
+            output_dir=os.path.join(DATASETS_BASE_PATH, "merged_data"),
+            new_ratio=1,
+            old_ratio=3,
+            random_seed=42,
+            use_latest_merged_to_make_new_dataset=False  # Read from config
+        )
+        dataset_dir = merge_result['output_dir']  # Use merged dataset for training
+        yaml_filename = merge_result['yaml_filename']
+        yaml_path = os.path.join(dataset_dir, yaml_filename) 
+    else:
+        print('********** use dataset last merged for train model !!! **********')
+        yaml_path = f"{DATASETS_BASE_PATH}/merged_data/data.yaml" #data.yaml은 data_merged_20251110_v137.yaml 생성된 후 즉시 복사된 결과
+        dataset_dir = f"{DATASETS_BASE_PATH}/merged_data"
     print(f"[{datetime.now()}] Starting YOLO model retraining...")
     
     # Load config
@@ -889,8 +893,8 @@ def train_model():
     if use_previous_model_final:
         print(f"\n🔄 Fine-tuning mode: Loading previous trained model")
         model = YOLO(prev_model_path)
-        lr0 = 0.001  # Low LR for fine-tuning
-        lrf = 0.01
+        lr0 = 0.0001  # Low LR for fine-tuning
+        lrf = 0.1
         print(f"   Model: {prev_model_path}")
         print(f"   Learning rate: {lr0}")
     else:
@@ -898,8 +902,8 @@ def train_model():
         if USE_PREV_MODEL and prev_model_path is None:
             print(f"   Note: USE_PREV_MODEL=True but no previous model found")
         model = YOLO(YOLO_MODEL)
-        lr0 = 0.001  # Higher LR for fresh training
-        lrf = 0.01
+        lr0 = 0.0001  # Higher LR for fresh training
+        lrf = 0.1
         print(f"   Model: {YOLO_MODEL}")
         print(f"   Learning rate: {lr0}")
     
