@@ -1,8 +1,8 @@
 datadrift_table: datadrift_db
 datasets:
   base_path: ../datasets
-  objdet_save_data: false
-  use_last_merged_data_4train: false
+  objdet_save_data: false #객체 검츨 진행 시 이미지와 annotation 저장 여부 결정
+  use_last_merged_data_4train: false #기존에 생성된 학습/평가/테스트 데이터 적용할 지 아니면 새로 생성할지 결정
 server:
   ip: 0.0.0.0
   port: 18880
@@ -12,12 +12,12 @@ postgres:
   dbname: postgres
   user: postgres
   password: postgres
-redis:
-  host: 127.0.0.1
-  port: 6379
-  db: 0
-  objdet_stream: object_detections
-  vlm_stream: vlm_verifications
+# redis:
+#   host: 127.0.0.1
+#   port: 6379
+#   db: 0
+#   objdet_stream: object_detections
+#   vlm_stream: vlm_verifications
 video:
   source: D:/videos/Best CCTV Fails of 2023! _ Try Not to Laugh (1080p).mp4
   camera_id: '007'
@@ -34,9 +34,9 @@ model_update:
   backup_old_model: false
   config_check_interval: 10.0 #10초마다 모델 업데이트 config파일에서 체크
 drift_detection:
-  drift_check_period: 1 days
-  cooldown_after_update: 30 minutes
-  partition_create_hour: 23
+  drift_check_period: 1 days #드리프트 발생 여부 체크 주기
+  cooldown_after_update: 30 minutes #최신 모델 업데이트 후  드리프트 감지 위해 최소 경과해야 할 시간
+  partition_create_hour: 23 #드리프트 등의 데이터를 저장하는 DB의 파티션(차일)을 매일 23시에 생성
   partition_create_minute: 0
 preview:
   roi_jpeg_quality: 80
