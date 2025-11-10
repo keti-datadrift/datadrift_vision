@@ -74,7 +74,7 @@ def main():
 
     except Exception as e:
         logging.error(f"Unexpected error in scheduler: {e}", exc_info=True)
-        print(traceback.format_exc())
+        logging.error(traceback.format_exc())
         sys.exit(1)
 
 

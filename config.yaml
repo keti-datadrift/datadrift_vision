@@ -13,15 +13,14 @@ postgres:
   user: postgres
   password: postgres
 video:
-  # source: D:/videos/40 Incredible Moments Caught on CCTV Camera.mp4
   source: D:/videos/Craziest Security Camera Captures! _ Caught on Cam _ Funny Moments.mp4
   camera_id: '007'
 yolo_model:
-  model_name: .\model\yolov8nGender_20251110_v3.pt
+  model_name: .\model\yolov8nGender_20251110_v4.pt
   conf_thresh: 0.3
   allow_classes: all
   criteria_classes: person
-  last_model_update: '2025-11-10T16:32:45.127729'
+  last_model_update: '2025-11-10T17:16:34.906669'
 model_update:
   overall_map_threshold: 0.0
   criteria_class_map_threshold: 0.01

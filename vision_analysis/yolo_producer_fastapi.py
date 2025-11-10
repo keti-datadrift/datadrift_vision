@@ -18,12 +18,48 @@ import yaml
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import logging
+from pathlib import Path
 
 from ultralytics import YOLO
 from clip_caller import verify_with_clip
 
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.append(base_abspath)
+
+# Setup logging
+def setup_logging():
+    """Setup logging to both file and console"""
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"yolo_producer_{datetime.now().strftime('%Y%m%d')}.log"
+
+    # Create formatters
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+
+    # File handler
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(file_formatter)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    # Clear existing handlers
+    logger.handlers.clear()
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+# Initialize logging
+logger = setup_logging()
 # vision_analysis_abspath = f"{base_abspath}/vision_analysis/"
 # sys.path.append(vision_analysis_abspath)
 from util import *
@@ -111,7 +147,7 @@ def save_full_frame_with_annotation(frame_b64: str,
         np_arr = np.frombuffer(img_data, np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         if img is None:
-            print("[Warning] Failed to decode full frame image")
+            logging.warning("Failed to decode full frame image")
             return False
 
         cv2.imwrite(img_path, img)
@@ -141,18 +177,18 @@ def save_full_frame_with_annotation(frame_b64: str,
             else:
                 f.write("0 0.5 0.5 1.0 1.0\n")
 
-        print(f"[SAVE] Annotation saved to: {label_path}")
+        logging.info(f"[SAVE] Annotation saved to: {label_path}")
         return True
 
     except Exception as e:
-        print(f"[Error] Failed to save frame or annotation: {e}")
+        logging.error(f"Failed to save frame or annotation: {e}")
         return False
 
 def class_choose(cls_nm, class_names):
     try:
         return class_names.index(cls_nm)
     except ValueError:
-        print(f"⚠️ Warning: '{cls_nm}' not found in class_names")
+        logging.warning(f"'{cls_nm}' not found in class_names")
         return -1
     
 # def save_full_frame_with_annotation_v2(frame_b64: str, 
@@ -249,7 +285,7 @@ def db_insert_event(response: dict,frame_b64,bboxes):
     except Exception as e:
         if conn:
             conn.rollback()
-        print(traceback.format_exc())
+        logging.error(traceback.format_exc())
         return {"status": "error", "message": str(e)}
 
     finally:
@@ -275,23 +311,23 @@ def load_current_model_from_config():
             config = yaml.safe_load(f)
         return config["yolo_model"]["model_name"]
     except Exception as e:
-        print(f"[ERROR] Failed to read config.yaml: {e}")
+        logging.error(f"Failed to read config.yaml: {e}")
         return None
 
 def main():
-    print(f"[m1] start YOLO producer:")# FastAPI={VLM_URL}, camera_id={CAMERA_ID}")
+    logging.info("Starting YOLO producer")
 
     # Initialize model
     current_model_path = YOLO_MODEL
     model = YOLO(current_model_path)
-    print(f"[MODEL] Loaded initial model: {current_model_path}")
+    logging.info(f"Loaded initial model: {current_model_path}")
 
     # Track last config check time and model reload
     last_config_check_time = time.time()
     config_check_interval = CONFIG_CHECK_INTERVAL
     last_loaded_model_path = current_model_path
 
-    print(f"[CONFIG] Model update check interval: {config_check_interval} seconds")
+    logging.info(f"Model update check interval: {config_check_interval} seconds")
 
     cap = cv2.VideoCapture(0 if VIDEO_SOURCE == "0" else VIDEO_SOURCE)
     if not cap.isOpened():
@@ -313,26 +349,26 @@ def main():
                 if config_model_path and config_model_path != last_loaded_model_path:
                     # Model has changed, reload it
                     try:
-                        print(f"\n{'='*80}")
-                        print(f"[MODEL UPDATE DETECTED]")
-                        print(f"  Old model: {last_loaded_model_path}")
-                        print(f"  New model: {config_model_path}")
-                        print(f"{'='*80}")
+                        logging.info("="*80)
+                        logging.info("[MODEL UPDATE DETECTED]")
+                        logging.info(f"  Old model: {last_loaded_model_path}")
+                        logging.info(f"  New model: {config_model_path}")
+                        logging.info("="*80)
 
                         # Load new model
                         model = YOLO(config_model_path)
                         last_loaded_model_path = config_model_path
 
-                        print(f"[MODEL] Successfully loaded new model: {config_model_path}")
-                        print(f"{'='*80}\n")
+                        logging.info(f"Successfully loaded new model: {config_model_path}")
+                        logging.info("="*80)
                     except Exception as e:
-                        print(f"[ERROR] Failed to load new model {config_model_path}: {e}")
-                        print(f"[MODEL] Continuing with previous model: {last_loaded_model_path}")
+                        logging.error(f"Failed to load new model {config_model_path}: {e}")
+                        logging.info(f"Continuing with previous model: {last_loaded_model_path}")
 
             # Continue with normal frame processing
             ok, frame = cap.read()
             if not ok:
-                print("[m1] video read failed/broken. exiting.")
+                logging.error("Video read failed/broken. exiting.")
                 break
             frame_idx += 1
             if frame_idx%FRAMES_PER_DRIFT_DETECTION!=0:
@@ -442,15 +478,15 @@ def main():
                                 bboxes_filtered_new.append((conf, bbox, cls_name))
                             db_insert_event(resp.json(), frame_b64,minmax_boxes)
                         else:
-                            print(f"[ERROR] HTTP {resp.status_code}: {resp.text}")
+                            logging.error(f"HTTP {resp.status_code}: {resp.text}")
                     except requests.exceptions.RequestException as e:
-                        print(f"[HTTP ERROR] {e}")
+                        logging.error(f"HTTP ERROR: {e}")
                     # 저장 경로 결정
             save_dir = os.path.join(DATASETS_BASE_PATH, "collected" ,"good_images" if False==false_class_detected else "wronged_images")
 
             # 이미지 및 어노테이션 저장
             if not frame_b64:
-                print("[Warning] No frame_b64 found in response")
+                logging.warning("No frame_b64 found in response")
                 return {"status": "error", "message": "No frame_b64 provided"}
             if objdet_save_data == True:
                 ok = save_full_frame_with_annotation(
@@ -467,10 +503,10 @@ def main():
 
                 if not ok:
                     # return {"status": "error", "message": "Failed to save frame or annotation"}
-                    print("error!!!, Failed to save frame or annotation")
+                    logging.error("Failed to save frame or annotation")
 
                 # return {"status": "success", "message": f"Saved to {save_dir}"}
-                print(f"success Saved to {save_dir}")
+                logging.info(f"Successfully saved to {save_dir}")
                 
             if SHOW_PREVIEW:
                 cv2.imshow("YOLO Producer", frame)
