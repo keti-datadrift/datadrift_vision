@@ -73,20 +73,21 @@ def call_drift_api(api_url: str, params: dict, timeout: int = 30):
         logging.error(msg)
         return {"status": "error", "message": msg}
 
-    # except requests.exceptions.ConnectionError as e:
-    #     msg = f"Failed to connect to API server: {e}"
-    #     logging.error(msg)
-    #     return {"status": "error", "message": msg}
+    except requests.exceptions.ConnectionError as e:
+        msg = f"Failed to connect to API server at {api_url}. Make sure db_api_server.py is running."
+        logging.error(msg)
+        logging.error(f"Connection error details: {e}")
+        return {"status": "error", "message": msg}
 
-    # except requests.exceptions.HTTPError as e:
-    #     msg = f"HTTP error occurred: {e}"
-    #     logging.error(msg)
-    #     return {"status": "error", "message": msg}
+    except requests.exceptions.HTTPError as e:
+        msg = f"HTTP error occurred: {e}"
+        logging.error(msg)
+        return {"status": "error", "message": msg}
 
-    # except Exception as e:
-    #     msg = f"Unexpected error calling API: {e}"
-    #     logging.error(msg)
-    #     return {"status": "error", "message": msg}
+    except Exception as e:
+        msg = f"Unexpected error calling API: {e}"
+        logging.error(msg)
+        return {"status": "error", "message": msg}
 
 
 def main():
@@ -110,7 +111,7 @@ def main():
         params = {
             "period": "1 day",
             "class_name": "person",
-            "threshold": 0.01
+            "threshold": 0.06
         }
 
         result = call_drift_api(drift_api_url, params)
@@ -124,6 +125,13 @@ def main():
                 "timestamp": datetime.now().isoformat(),
                 "result": result
             }, ensure_ascii=False) + "\n")
+
+        # Check if API call failed
+        if result.get("status") == "error":
+            logging.warning(f"Drift check failed: {result.get('message')}")
+            logging.info("Drift detection check completed with errors")
+            logging.info("=" * 60)
+            return  # Don't exit with error code, just skip this cycle
 
         # If drift detected → trigger retraining
         if result.get("status") == "success" and result.get("drift_detected", False):

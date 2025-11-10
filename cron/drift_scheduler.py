@@ -48,12 +48,14 @@ def main():
             replace_existing=True
         )
 
-        logging.info(f"📅 Partition creation scheduled daily at {partition_hour:02d}:{partition_minute:02d}")      
-        scheduler.add_job(scheduled_job, "interval", hours=1, id="drift_check")
-        # scheduler.add_job(scheduled_job, "interval", seconds=10, id="drift_check")
+        logging.info(f"📅 Partition creation scheduled daily at {partition_hour:02d}:{partition_minute:02d}")
+        # Choose your desired interval - uncomment ONE of the following:
+        # scheduler.add_job(scheduled_job, "interval", hours=1, id="drift_check", replace_existing=True)
+        scheduler.add_job(scheduled_job, "interval", minutes=20, id="drift_check", replace_existing=True)
+        # scheduler.add_job(scheduled_job, "interval", seconds=10, id="drift_check", replace_existing=True)
 
         scheduler.start()
-        logging.info("🚀 APScheduler drift detection service started (interval=1h)")
+        logging.info("🚀 APScheduler drift detection service started")
 
         # 안전한 종료 처리
         def shutdown(signum, frame):

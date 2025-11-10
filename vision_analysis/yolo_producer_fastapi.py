@@ -34,7 +34,7 @@ with open("config.yaml", "r", encoding="utf-8") as f:
 
 
 objdet_save_data = config['datasets']['objdet_save_data']
-
+DATASETS_BASE_PATH = config['datasets']['base_path']
 
 # FastAPI 서버 정보
 # FASTAPI_HOST = config.get("fastapi", {}).get("host", "localhost")
@@ -115,7 +115,7 @@ def save_full_frame_with_annotation(frame_b64: str,
             return False
 
         cv2.imwrite(img_path, img)
-        print(f"[SAVE] Full frame image saved to: {img_path}")
+        # print(f"[SAVE] Full frame image saved to: {img_path}")
 
         # 이미지 크기
         h, w = img.shape[:2]
@@ -434,7 +434,7 @@ def main():
                     try:
                         resp = requests.post(VLM_URL, json=msg, timeout=10)
                         if resp.status_code == 200:
-                            print(f"[POST] Sent detection -> {cls_name}, response: {resp.json()}")
+                            # print(f"[POST] Sent detection -> {cls_name}, response: {resp.json()}")
                             resp_dict = resp.json()
                             if 'yes'!=resp_dict['vlm_valid']:
                                 false_class_detected = True
@@ -446,7 +446,7 @@ def main():
                     except requests.exceptions.RequestException as e:
                         print(f"[HTTP ERROR] {e}")
                     # 저장 경로 결정
-            save_dir = os.path.join(base_abspath, "datasets","collected" ,"good_images" if False==false_class_detected else "wronged_images")
+            save_dir = os.path.join(DATASETS_BASE_PATH, "collected" ,"good_images" if False==false_class_detected else "wronged_images")
 
             # 이미지 및 어노테이션 저장
             if not frame_b64:

@@ -903,7 +903,7 @@ def train_model():
             print(f"   Note: USE_PREV_MODEL=True but no previous model found")
         model = YOLO(YOLO_MODEL)
         lr0 = 0.0001  # Higher LR for fresh training
-        lrf = 0.1
+        lrf = 0.01
         print(f"   Model: {YOLO_MODEL}")
         print(f"   Learning rate: {lr0}")
     
