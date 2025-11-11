@@ -16,10 +16,9 @@ video:
   source: D:/videos/105 Incredible Moments Caught on CCTV Camera.mp4  # 비디오 소스 경로 또는 RTSP URL
   camera_id: '007'  # 카메라 식별자 (DB 저장 시 사용)
 yolo_model:
-  original_model_name: .\model\yolov8n_test.pt  # 원본(베이스) YOLO 모델 경로
+  original_model_name: .\model\yolov8n_gdr.pt  # 원본(베이스) YOLO 모델 경로
   updated_model_name: null  # 재학습된 모델 경로 (학습 후 자동 업데이트됨, null이면 아직 재학습 안됨)
   use_original_model: true  # true: original_model_name 사용, false: updated_model_name 사용
-  model_name: .\model\yolov8nGender_20251111_v1.pt  # [DEPRECATED] 하위 호환성 유지용, use_origin 플래그에 따라 original/updated 중 하나 자동 선택
   conf_thresh: 0.5  # 객체 검출 confidence 임계값 (0.0~1.0, 낮을수록 더 많이 검출하지만 오탐 증가)
   allow_classes: all  # 검출 허용 클래스 (all: 모든 클래스, 또는 ['person', 'car'] 등 리스트)
   criteria_classes: person  # 드리프트 감지 대상 클래스 (drift_detection에서 참조됨)
@@ -33,7 +32,7 @@ model_update:
 drift_detection:
   drift_check_period: 1 days  # 드리프트 체크 시 분석할 데이터 기간 (PostgreSQL interval 형식)
   drift_check_interval_minutes: 60  # 드리프트 체크 주기 (분, 너무 짧으면 부하 증가, 너무 길면 대응 지연, 권장: 10~30분)
-  threshold: 0.070  # 드리프트 임계값 (0.0~1.0, false_ratio >= threshold이면 감지, 낮을수록 민감, 높을수록 둔감)
+  threshold: 0.050  # 드리프트 임계값 (0.0~1.0, false_ratio >= threshold이면 감지, 낮을수록 민감, 높을수록 둔감)
   cooldown_after_update: 30 minutes  # 모델 업데이트 후 드리프트 체크 쿨다운 기간 (새 모델 안정화 대기 시간)
   training_lock_timeout_hours: 6  # 학습 lock 파일 타임아웃 (시간, 이 시간 초과 시 stale로 간주하고 프로세스 강제 종료)
   partition_create_hour: 23  # 일별 파티션 생성 시각 (시)
@@ -42,9 +41,9 @@ drift_detection:
 preview:
   roi_jpeg_quality: 80  # 미리보기 이미지 JPEG 품질 (0~100, 높을수록 용량 증가)
   show_preview: 0  # 실시간 미리보기 창 표시 여부 (0: 끄기, 1: 켜기)
-clip_model:
-  model_name_low: ViT-B/32  # 빠른 VLM 모델 (낮은 정확도, 빠른 속도)
-  model_name_high: ViT-L/14  # 정확한 VLM 모델 (높은 정확도, 느린 속도)
-vlm_intervals:
-  interval_sec: 10  # VLM 검증 실행 주기 (초 단위, 너무 짧으면 GPU 부하 증가)
-  window_sec: 30  # VLM 검증 대상 시간 윈도우 (이 기간 내 객체들을 묶어서 검증)
+# clip_model:
+#   model_name_low: ViT-B/32  # 빠른 VLM 모델 (낮은 정확도, 빠른 속도)
+#   model_name_high: ViT-L/14  # 정확한 VLM 모델 (높은 정확도, 느린 속도)
+# vlm_intervals:
+  # interval_sec: 10  # VLM 검증 실행 주기 (초 단위, 너무 짧으면 GPU 부하 증가)
+  # window_sec: 30  # VLM 검증 대상 시간 윈도우 (이 기간 내 객체들을 묶어서 검증)

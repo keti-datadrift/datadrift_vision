@@ -66,15 +66,17 @@ def get_active_model_name(config):
     if use_original_model:
         model_name = yolo_config.get("original_model_name")
         if not model_name:
-            # Fallback to deprecated model_name for backward compatibility
-            model_name = yolo_config.get("model_name", "./model/yolov8n_local.pt")
-            logging.warning("original_model_name not found, using model_name fallback")
+            logging.error("original_model_name not configured in config.yaml")
+            raise ValueError("original_model_name must be set in config.yaml")
     else:
         model_name = yolo_config.get("updated_model_name")
         if not model_name or model_name == "null":
             # Fallback to original if updated model not available
             logging.warning("updated_model_name not available, falling back to original_model_name")
-            model_name = yolo_config.get("original_model_name") or yolo_config.get("model_name", "./model/yolov8n_local.pt")
+            model_name = yolo_config.get("original_model_name")
+            if not model_name:
+                logging.error("Neither updated_model_name nor original_model_name configured")
+                raise ValueError("original_model_name must be set in config.yaml")
 
     return model_name
 
@@ -586,6 +588,7 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
             logging.info(f"Ratio - New:Old = {new_ratio}:{old_ratio}")
             logging.info(f"{'='*60}\n")
     else:
+        clean_merged_data_directory(output_dir)
         if not coco_yaml_path:
             logging.info("Error: coco_yaml_path must be provided when use_latest_merged=False")
             return None
@@ -615,17 +618,14 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
         logging.info(f"\n--- Processing {split} split ---")
 
         # Get paths from YAML
-        new_base_path = Path(base_abspath) / new_data['path']
+        new_base_path = Path(DATASETS_BASE_PATH) / new_data['path']
         new_images_dir = new_base_path / new_data[split]
         new_labels_dir = new_base_path / new_data[split].replace('images', 'labels')
 
         # COCO paths (adjust based on your COCO dataset structure)
         coco_base_path = Path(coco_data['path'])
         if not coco_base_path.is_absolute():
-            coco_base_path = Path(base_abspath) / coco_data['path']
-
-        coco_images_dir = coco_base_path / coco_data[split]
-        coco_labels_dir = coco_base_path / coco_data[split].replace('images', 'labels')
+            coco_base_path = Path(DATASETS_BASE_PATH) / coco_data['path']
 
         # Collect image-label pairs from NEW dataset
         new_pairs = []
@@ -643,15 +643,53 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
 
         # Collect image-label pairs from COCO dataset
         coco_pairs = []
-        if coco_images_dir.exists():
-            for img_file in list(coco_images_dir.glob('*.jpg')) + list(coco_images_dir.glob('*.png')):
-                label_file = coco_labels_dir / f"{img_file.stem}.txt"
-                if label_file.exists():
-                    coco_pairs.append({
-                        'image': img_file,
-                        'label': label_file,
-                        'source': 'coco'
-                    })
+        coco_split_entry = coco_data.get(split)
+
+        if coco_split_entry:
+            # Check if it's a text file containing image paths (COCO format)
+            if coco_split_entry.endswith('.txt'):
+                txt_file_path = coco_base_path / coco_split_entry
+                if txt_file_path.exists():
+                    logging.info(f"  Reading COCO image paths from: {txt_file_path}")
+                    try:
+                        with open(txt_file_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                # Image path (relative to coco_base_path)
+                                img_path = coco_base_path / line.lstrip('./')
+
+                                if img_path.exists():
+                                    # Derive label path by replacing 'images' with 'labels' and extension with '.txt'
+                                    label_path_str = str(img_path).replace('/images/', '/labels/').replace('\\images\\', '\\labels\\')
+                                    label_path = Path(label_path_str).with_suffix('.txt')
+
+                                    if label_path.exists():
+                                        coco_pairs.append({
+                                            'image': img_path,
+                                            'label': label_path,
+                                            'source': 'coco'
+                                        })
+                    except Exception as e:
+                        logging.warning(f"  Error reading COCO text file {txt_file_path}: {e}")
+                else:
+                    logging.warning(f"  COCO text file not found: {txt_file_path}")
+            else:
+                # Traditional directory-based approach
+                coco_images_dir = coco_base_path / coco_split_entry
+                coco_labels_dir = coco_base_path / coco_split_entry.replace('images', 'labels')
+
+                if coco_images_dir.exists():
+                    for img_file in list(coco_images_dir.glob('*.jpg')) + list(coco_images_dir.glob('*.png')):
+                        label_file = coco_labels_dir / f"{img_file.stem}.txt"
+                        if label_file.exists():
+                            coco_pairs.append({
+                                'image': img_file,
+                                'label': label_file,
+                                'source': 'coco'
+                            })
 
         logging.info(f"  COCO dataset: {len(coco_pairs)} samples")
 
@@ -846,8 +884,8 @@ def train_model():
         ])
 
         # Clean up old merged data to prevent accumulation
-        merged_data_dir = os.path.join(DATASETS_BASE_PATH, "merged_data")
-        clean_merged_data_directory(merged_data_dir)
+        # merged_data_dir = os.path.join(DATASETS_BASE_PATH, "merged_data")
+
         # Merge with COCO or latest merged dataset based on config
         merge_result = merge_new_with_coco(
             new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
@@ -997,6 +1035,8 @@ def train_model():
         model = YOLO(prev_model_path)
         lr0 = 0.0001  # Low LR for fine-tuning
         lrf = 0.1
+        # lr0 = 0.001  # Low LR for fine-tuning
+        # lrf = 0.01
         logging.info(f"   Model: {prev_model_path}")
         logging.info(f"   Learning rate: {lr0}")
     else:
@@ -1011,77 +1051,90 @@ def train_model():
     
     logging.info(f"\n[{datetime.now()}] Training started...")
     
-    # Train model
+    # 2️⃣ 학습 시작
+    results = model.train(
+        data=yaml_path,            # 데이터셋 경로
+        epochs=150,                  # 학습 반복 횟수
+        batch=16,                    # 배치 크기
+        imgsz=640,                   # 입력 이미지 크기
+        optimizer="SGD",             # 최적화 알고리즘 (SGD)
+        lr0=0.0001,                    # 초기 학습률
+        lrf=0.01,                    # 최종 학습률 비율
+        momentum=0.937,              # SGD 모멘텀
+        weight_decay=0.0005,         # 가중치 감쇠 (정규화)
+        patience=20,                 # 조기 종료 patience
+        hsv_h=0.015,                 # 색조 증강
+        hsv_s=0.7,                   # 채도 증강
+        hsv_v=0.4,                   # 명도 증강
+        degrees=0.0,                 # 회전 없음
+        translate=0.1,               # 위치 이동
+        scale=0.5,                   # 확대/축소
+        shear=0.0,                   # 기울이기 없음
+        flipud=0.0,                  # 상하 반전 없음
+        fliplr=0.5,                  # 좌우 반전 확률
+        mosaic=1.0,                  # mosaic 합성
+        mixup=0.1,                   # mixup 비율
+        project=runs_dir,        # 결과 저장 폴더
+        name="retrain", # 세션 이름
+        exist_ok=True,               # 기존 폴더 덮어쓰기 허용
+        pretrained=True              # 사전학습 가중치 사용
+    )
     # results = model.train(
-    #     data=yaml_path,
+    #     # 데이터
+    #     data=yaml_path,  # ⭐ 병합된 데이터 사용
+    #     cache=False,  # Cache images for faster training (first epoch will be slower)
+
+    #     # 기본 파라미터
     #     epochs=100,
+    #     patience=10,             # 조기 종료
+    #     # epochs=5,
+    #     # patience=3,             # 조기 종료
     #     imgsz=640,
     #     batch=16,
-    #     name="retrain",
-    #     project=runs_dir,
-    #     device=0,
-    #     lr0=lr0,
+        
+    #     # 학습률 (기존 지식 보존용 낮은 LR)
+    #     lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
     #     lrf=lrf,
     #     optimizer='AdamW',
-    #     patience=10,
-    #     warmup_epochs=3
+    #     warmup_epochs=3,
+    #     warmup_momentum=0.8,
+        
+    #     # 정규화 (과적합 방지)
+    #     weight_decay=0.0005,
+    #     dropout=0.0,
+        
+    #     # 레이어 동결 (선택적)
+    #     freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
+        
+    #     # 데이터 증강
+    #     hsv_h=0.015,
+    #     hsv_s=0.7,
+    #     hsv_v=0.4,
+    #     degrees=10,
+    #     translate=0.1,
+    #     scale=0.5,
+    #     shear=0.0,
+    #     perspective=0.0,
+    #     flipud=0.0,
+    #     fliplr=0.5,
+    #     mosaic=1.0,              # 모자이크 증강
+    #     mixup=0.1,               # 믹스업
+    #     copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
+        
+    #     # 저장 및 로깅
+    #     save=True,
+    #     save_period=10,
+    #     plots=True,
+        
+    #     # 하드웨어
+    #     device=0,
+    #     workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
+
+    #     # 프로젝트
+    #     # project='runs/train',
+    #     project=runs_dir,
+    #     name='retrain'
     # )
-    results = model.train(
-        # 데이터
-        data=yaml_path,  # ⭐ 병합된 데이터 사용
-        cache=False,  # Cache images for faster training (first epoch will be slower)
-
-        # 기본 파라미터
-        epochs=100,
-        patience=10,             # 조기 종료
-        # epochs=5,
-        # patience=3,             # 조기 종료
-        imgsz=640,
-        batch=16,
-        
-        # 학습률 (기존 지식 보존용 낮은 LR)
-        lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
-        lrf=lrf,
-        optimizer='AdamW',
-        warmup_epochs=3,
-        warmup_momentum=0.8,
-        
-        # 정규화 (과적합 방지)
-        weight_decay=0.0005,
-        dropout=0.0,
-        
-        # 레이어 동결 (선택적)
-        freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
-        
-        # 데이터 증강
-        hsv_h=0.015,
-        hsv_s=0.7,
-        hsv_v=0.4,
-        degrees=10,
-        translate=0.1,
-        scale=0.5,
-        shear=0.0,
-        perspective=0.0,
-        flipud=0.0,
-        fliplr=0.5,
-        mosaic=1.0,              # 모자이크 증강
-        mixup=0.1,               # 믹스업
-        copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
-        
-        # 저장 및 로깅
-        save=True,
-        save_period=10,
-        plots=True,
-        
-        # 하드웨어
-        device=0,
-        workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
-
-        # 프로젝트
-        # project='runs/train',
-        project=runs_dir,
-        name='retrain'
-    )
     logging.info(f"\n[{datetime.now()}] Training completed!")
     logging.info(f"Results saved to: {results.save_dir}")
 
@@ -1184,7 +1237,7 @@ def evaluate_old_and_new_models():
             config = yaml.safe_load(f)
         old_model_name = get_active_model_name(config)
     else:
-        old_model_name = "./model/yolov8n_local.pt"
+        old_model_name = "./model/yolov8n_gdr.pt"
 
     old_model_path = os.path.join(base_abspath, old_model_name)
 
@@ -1576,9 +1629,8 @@ def update_production_model():
         # Update the model paths in config
         relative_model_path = os.path.join(".", "model", versioned_model_name)
 
-        # Update both updated_model_name (new field) and model_name (backward compatibility)
+        # Update updated_model_name with the new trained model
         config["yolo_model"]["updated_model_name"] = relative_model_path
-        config["yolo_model"]["model_name"] = relative_model_path  # Backward compatibility
 
         # Record the update timestamp in ISO 8601 format
         update_timestamp = datetime.now().isoformat()
@@ -1588,9 +1640,8 @@ def update_production_model():
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
-        logging.info(f"✅ Updated config.yaml with new model paths:")
+        logging.info(f"✅ Updated config.yaml with new model path:")
         logging.info(f"   - updated_model_name: {relative_model_path}")
-        logging.info(f"   - model_name (deprecated): {relative_model_path}")
         logging.info(f"✅ Recorded model update timestamp: {update_timestamp}")
         logging.info(f"   Note: Set use_original_model=false in config.yaml to use the updated model")
     except Exception as e:

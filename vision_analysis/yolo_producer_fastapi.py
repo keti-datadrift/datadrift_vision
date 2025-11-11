@@ -78,15 +78,17 @@ def get_active_model_name(config):
     if use_original_model:
         model_name = yolo_config.get("original_model_name")
         if not model_name:
-            # Fallback to deprecated model_name for backward compatibility
-            model_name = yolo_config.get("model_name", "./model/yolov8n_local.pt")
-            logging.warning("original_model_name not found, using model_name fallback")
+            logging.error("original_model_name not configured in config.yaml")
+            raise ValueError("original_model_name must be set in config.yaml")
     else:
         model_name = yolo_config.get("updated_model_name")
         if not model_name or model_name == "null":
             # Fallback to original if updated model not available
             logging.warning("updated_model_name not available, falling back to original_model_name")
-            model_name = yolo_config.get("original_model_name") or yolo_config.get("model_name", "./model/yolov8n_local.pt")
+            model_name = yolo_config.get("original_model_name")
+            if not model_name:
+                logging.error("Neither updated_model_name nor original_model_name configured")
+                raise ValueError("original_model_name must be set in config.yaml")
 
     return model_name
 

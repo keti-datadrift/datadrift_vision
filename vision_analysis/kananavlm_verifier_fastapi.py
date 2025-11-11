@@ -70,7 +70,7 @@ else:
     config = {}
 
 USE_VLM = config.get("vlm", {}).get("use_vlm", True)
-WINDOW_SEC = int(config.get("vlm", {}).get("window_sec", 30))
+# WINDOW_SEC = int(config.get("vlm", {}).get("window_sec", 30))
 
 # -----------------------------------------------------
 # FastAPI 초기화
