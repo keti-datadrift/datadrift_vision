@@ -60,6 +60,37 @@ def setup_logging():
 
 # Initialize logging
 logger = setup_logging()
+
+
+def get_active_model_name(config):
+    """
+    Get the active model name based on use_original_model flag.
+
+    Args:
+        config: Loaded config dictionary
+
+    Returns:
+        str: Active model name (either original_model_name or updated_model_name)
+    """
+    yolo_config = config.get("yolo_model", {})
+    use_original_model = yolo_config.get("use_original_model", True)
+
+    if use_original_model:
+        model_name = yolo_config.get("original_model_name")
+        if not model_name:
+            # Fallback to deprecated model_name for backward compatibility
+            model_name = yolo_config.get("model_name", "./model/yolov8n_local.pt")
+            logging.warning("original_model_name not found, using model_name fallback")
+    else:
+        model_name = yolo_config.get("updated_model_name")
+        if not model_name or model_name == "null":
+            # Fallback to original if updated model not available
+            logging.warning("updated_model_name not available, falling back to original_model_name")
+            model_name = yolo_config.get("original_model_name") or yolo_config.get("model_name", "./model/yolov8n_local.pt")
+
+    return model_name
+
+
 # vision_analysis_abspath = f"{base_abspath}/vision_analysis/"
 # sys.path.append(vision_analysis_abspath)
 from util import *
@@ -83,7 +114,7 @@ VIDEO_SOURCE = config["video"]["source"]
 CAMERA_ID    = config["video"]["camera_id"]
 
 # YOLO 모델 설정
-YOLO_MODEL   = config["yolo_model"]["model_name"]
+YOLO_MODEL   = get_active_model_name(config)
 CONF_THRESH  = float(config["yolo_model"]["conf_thresh"])
 ALLOW_CLASSES_STR = config["yolo_model"].get("allow_classes", "").strip()
 ALLOW_CLASSES = [c.strip() for c in ALLOW_CLASSES_STR.split(",") if c.strip()] if ALLOW_CLASSES_STR else None
@@ -305,13 +336,13 @@ def b64_to_cv2(b64_str: str):
 
 def load_current_model_from_config():
     """
-    Load the current model path from config.yaml
+    Load the current model path from config.yaml based on use_original_model flag
     Returns the model path string
     """
     try:
         with open("config.yaml", "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        return config["yolo_model"]["model_name"]
+        return get_active_model_name(config)
     except Exception as e:
         logging.error(f"Failed to read config.yaml: {e}")
         return None

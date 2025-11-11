@@ -49,7 +49,35 @@ def setup_logging():
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-    return logger
+
+def get_active_model_name(config):
+    """
+    Get the active model name based on use_original_model flag.
+
+    Args:
+        config: Loaded config dictionary
+
+    Returns:
+        str: Active model name (either original_model_name or updated_model_name)
+    """
+    yolo_config = config.get("yolo_model", {})
+    use_original_model = yolo_config.get("use_original_model", True)
+
+    if use_original_model:
+        model_name = yolo_config.get("original_model_name")
+        if not model_name:
+            # Fallback to deprecated model_name for backward compatibility
+            model_name = yolo_config.get("model_name", "./model/yolov8n_local.pt")
+            logging.warning("original_model_name not found, using model_name fallback")
+    else:
+        model_name = yolo_config.get("updated_model_name")
+        if not model_name or model_name == "null":
+            # Fallback to original if updated model not available
+            logging.warning("updated_model_name not available, falling back to original_model_name")
+            model_name = yolo_config.get("original_model_name") or yolo_config.get("model_name", "./model/yolov8n_local.pt")
+
+    return model_name
+
 
 # Initialize logging
 logger = setup_logging()
@@ -533,8 +561,6 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
     """
     import random
 
-    # Clean up old merged data to prevent accumulation
-    clean_merged_data_directory(output_dir)
 
     # Determine which base dataset to use - ALWAYS USE COCO, NOT PREVIOUS MERGED
     base_type = "coco"
@@ -803,12 +829,25 @@ def train_model():
     logging.info(f"{'='*60}\n")
 
     if False==use_last_merged_data_4train:
+                # Clean up 'splitted' folder after successful merge to save disk space
+        splitted_dir = os.path.join(DATASETS_BASE_PATH, "splitted")
+        if os.path.exists(splitted_dir):
+            try:
+                logging.info(f"Removing 'splitted' directory to save disk space: {splitted_dir}")
+                shutil.rmtree(splitted_dir)
+                logging.info("✅ 'splitted' directory removed successfully")
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to remove 'splitted' directory: {e}")
+
         logging.info(f"[{datetime.now()}] Starting merge and split datasets...")
         merge_and_split_datasets([
             os.path.join(DATASETS_BASE_PATH, 'collected', 'good_images'),
             os.path.join(DATASETS_BASE_PATH, 'collected', 'wronged_images')
         ])
 
+        # Clean up old merged data to prevent accumulation
+        merged_data_dir = os.path.join(DATASETS_BASE_PATH, "merged_data")
+        clean_merged_data_directory(merged_data_dir)
         # Merge with COCO or latest merged dataset based on config
         merge_result = merge_new_with_coco(
             new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
@@ -821,7 +860,10 @@ def train_model():
         )
         dataset_dir = merge_result['output_dir']  # Use merged dataset for training
         yaml_filename = merge_result['yaml_filename']
-        yaml_path = os.path.join(dataset_dir, yaml_filename) 
+        yaml_path = os.path.join(dataset_dir, yaml_filename)
+
+
+                # Don't fail the training process if cleanup fails 
     else:
         logging.info('********** use dataset last merged for train model !!! **********')
         yaml_path = f"{DATASETS_BASE_PATH}/merged_data/data.yaml" #data.yaml은 data_merged_20251110_v137.yaml 생성된 후 즉시 복사된 결과
@@ -835,8 +877,9 @@ def train_model():
         return
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    
-    YOLO_MODEL = config["yolo_model"]["model_name"]
+
+    # Get active model based on use_original_model flag
+    YOLO_MODEL = get_active_model_name(config)
     CONF_THRESH = float(config["yolo_model"]["conf_thresh"])
     
     # Dataset paths
@@ -989,10 +1032,10 @@ def train_model():
         cache=False,  # Cache images for faster training (first epoch will be slower)
 
         # 기본 파라미터
-        # epochs=100,
-        # patience=10,             # 조기 종료
-        epochs=5,
-        patience=3,             # 조기 종료
+        epochs=100,
+        patience=10,             # 조기 종료
+        # epochs=5,
+        # patience=3,             # 조기 종료
         imgsz=640,
         batch=16,
         
@@ -1139,7 +1182,7 @@ def evaluate_old_and_new_models():
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        old_model_name = config.get("yolo_model", {}).get("model_name", "./model/yolov8n_local.pt")
+        old_model_name = get_active_model_name(config)
     else:
         old_model_name = "./model/yolov8n_local.pt"
 
@@ -1442,8 +1485,8 @@ def update_production_model():
 
     logging.info(f"New trained model: {new_model_path}")
 
-    # Get current production model path
-    current_model_name = config["yolo_model"]["model_name"]
+    # Get current production model path (the one currently in use)
+    current_model_name = get_active_model_name(config)
     current_model_path = os.path.join(base_abspath, current_model_name)
 
     logging.info(f"Current production model: {current_model_path}")
@@ -1530,9 +1573,12 @@ def update_production_model():
 
     # Update config.yaml to point to new versioned model and record timestamp
     try:
-        # Update the model_name in config
+        # Update the model paths in config
         relative_model_path = os.path.join(".", "model", versioned_model_name)
-        config["yolo_model"]["model_name"] = relative_model_path
+
+        # Update both updated_model_name (new field) and model_name (backward compatibility)
+        config["yolo_model"]["updated_model_name"] = relative_model_path
+        config["yolo_model"]["model_name"] = relative_model_path  # Backward compatibility
 
         # Record the update timestamp in ISO 8601 format
         update_timestamp = datetime.now().isoformat()
@@ -1542,8 +1588,11 @@ def update_production_model():
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
-        logging.info(f"✅ Updated config.yaml with new model path: {relative_model_path}")
+        logging.info(f"✅ Updated config.yaml with new model paths:")
+        logging.info(f"   - updated_model_name: {relative_model_path}")
+        logging.info(f"   - model_name (deprecated): {relative_model_path}")
         logging.info(f"✅ Recorded model update timestamp: {update_timestamp}")
+        logging.info(f"   Note: Set use_original_model=false in config.yaml to use the updated model")
     except Exception as e:
         logging.info(f"❌ Error updating config.yaml: {e}")
         return False
