@@ -32,13 +32,20 @@ def main():
         do_create_table()
         do_create_partition()
         drift_check_main()
-        # Get partition creation schedule from config
+
+        # Get partition creation schedule from main config
         drift_config = config.get('drift_detection', {})
         partition_hour = drift_config.get('partition_create_hour', 23)
         partition_minute = drift_config.get('partition_create_minute', 0)
 
+        # Get drift check interval from scheduler config
+        scheduler_config = config.get('scheduler', {})
+        drift_check_interval = scheduler_config.get('drift_check_interval_minutes', 20)
+
         # scheduling
         scheduler = BackgroundScheduler()
+
+        # Daily partition creation
         scheduler.add_job(
             do_create_partition,
             trigger='cron',
@@ -47,12 +54,17 @@ def main():
             id='daily_partition_create',
             replace_existing=True
         )
-
         logging.info(f"📅 Partition creation scheduled daily at {partition_hour:02d}:{partition_minute:02d}")
-        # Choose your desired interval - uncomment ONE of the following:
-        # scheduler.add_job(scheduled_job, "interval", hours=1, id="drift_check", replace_existing=True)
-        scheduler.add_job(scheduled_job, "interval", minutes=20, id="drift_check", replace_existing=True)
-        # scheduler.add_job(scheduled_job, "interval", seconds=10, id="drift_check", replace_existing=True)
+
+        # Periodic drift check
+        scheduler.add_job(
+            scheduled_job,
+            "interval",
+            minutes=drift_check_interval,
+            id="drift_check",
+            replace_existing=True
+        )
+        logging.info(f"🔍 Drift detection scheduled every {drift_check_interval} minutes")
 
         scheduler.start()
         logging.info("🚀 APScheduler drift detection service started")

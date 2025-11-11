@@ -315,7 +315,7 @@ def merge_and_split_datasets(source_dirs, output_dir=None,
 
     # Create data.yaml with metadata
     data_yaml = {
-        'path': str(output_path),
+        'path': str(output_path.resolve()),  # Use absolute path for Windows DataLoader compatibility
         'train': 'train/images',
         'val': 'val/images',
         'test': 'test/images',
@@ -697,7 +697,7 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
 
     # Create merged data.yaml with metadata
     merged_yaml = {
-        'path': str(output_path),
+        'path': str(output_path.resolve()),  # Use absolute path for Windows DataLoader compatibility
         'train': 'train/images',
         'val': 'val/images',
         'test': 'test/images',
@@ -1007,8 +1007,8 @@ def train_model():
         
         # 하드웨어
         device=0,
-        workers=8,
-        
+        workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
+
         # 프로젝트
         # project='runs/train',
         project=runs_dir,

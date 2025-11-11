@@ -10,6 +10,39 @@ from datetime import datetime  # ✅ 이렇게 해야 함
 # from celery.result import AsyncResult
 import os
 import yaml
+import logging
+import sys
+from pathlib import Path
+
+def setup_logging():
+    """Setup logging to both file and console"""
+    base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"db_api_server_{datetime.now().strftime('%Y%m%d')}.log"
+
+    # File handler - detailed logs
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(file_formatter)
+
+    # Console handler - important logs
+    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+# Setup logging first
+logger = setup_logging()
 
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
 with open(base_abspath+'/config.yaml', encoding="utf-8") as f:
@@ -82,8 +115,7 @@ def connect_db():
         cur = conn.cursor()
     except Exception as e:
         log_msg = f'Exception: {traceback.format_exc()}'
-        print(log_msg)
-        # logging.info(log_msg)
+        logging.error(log_msg)
 
     return conn, cur
 
@@ -109,11 +141,11 @@ def save_full_frame_with_annotation(frame_b64: str, save_dir: str, frame_id: str
         np_arr = np.frombuffer(img_data, np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         if img is None:
-            print("[Warning] Failed to decode full frame image")
+            logging.warning("Failed to decode full frame image")
             return False
 
         cv2.imwrite(img_path, img)
-        print(f"[SAVE] Full frame image saved to: {img_path}")
+        logging.info(f"Full frame image saved to: {img_path}")
 
         # 이미지 크기
         h, w = img.shape[:2]
@@ -137,11 +169,11 @@ def save_full_frame_with_annotation(frame_b64: str, save_dir: str, frame_id: str
             else:
                 f.write("0 0.5 0.5 1.0 1.0\n")
 
-        print(f"[SAVE] Annotation saved to: {label_path}")
+        logging.info(f"Annotation saved to: {label_path}")
         return True
 
     except Exception as e:
-        print(f"[Error] Failed to save frame or annotation: {e}")
+        logging.error(f"Failed to save frame or annotation: {e}")
         return False
 
 @app.post("/api/db_insert_event/")
@@ -172,7 +204,7 @@ async def db_insert_event(response: dict):
 
         # 이미지 및 어노테이션 저장
         if not frame_b64:
-            print("[Warning] No frame_b64 found in response")
+            logging.warning("No frame_b64 found in response")
             return {"status": "error", "message": "No frame_b64 provided"}
 
         ok = save_full_frame_with_annotation(
@@ -193,7 +225,7 @@ async def db_insert_event(response: dict):
         return {"status": "success", "message": f"Saved to {save_dir}"}
 
     except Exception:
-        print(traceback.format_exc())
+        logging.error(f"Unexpected error while saving data: {traceback.format_exc()}")
         return {"status": "error", "message": "Unexpected error while saving data"}
 
 
@@ -264,7 +296,7 @@ async def db_check_drift(
                 conn.close()
 
             except Exception as e:
-                print(f"Warning: Failed to parse last_model_update timestamp: {e}")
+                logging.warning(f"Failed to parse last_model_update timestamp: {e}")
                 # Continue with drift check if timestamp parsing fails
 
         # Proceed with normal drift detection
@@ -304,7 +336,7 @@ async def db_check_drift(
             }
 
         false_ratio = false_count / total_count
-        print(f'======================false_ratio ={false_ratio},threshold={threshold}======================')
+        logging.info(f"Drift check result: false_ratio={false_ratio:.3f}, threshold={threshold}")
         drift_detected = false_ratio >= threshold
 
         return {
@@ -321,7 +353,7 @@ async def db_check_drift(
         }
 
     except Exception as e:
-        print(traceback.format_exc())  # print_exc() → format_exc()
+        logging.error(f"Error in db_check_drift: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
     
 @app.get("/api/db_retrain/")
@@ -339,7 +371,7 @@ async def db_retrain():
         }
 
     except Exception as e:
-        print(traceback.format_exc())
+        logging.error(f"Error in db_retrain: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":

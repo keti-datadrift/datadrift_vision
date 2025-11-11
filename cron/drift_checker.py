@@ -172,12 +172,12 @@ def main():
         logging.info("=" * 60)
 
     except FileNotFoundError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        logging.error(f"Configuration file not found: {e}")
+        # Don't exit when called from scheduler, just log and return
 
     except Exception as e:
-        logging.error(f"Unexpected error in main: {e}", exc_info=True)
-        sys.exit(1)
+        logging.error(f"Unexpected error in drift check: {e}", exc_info=True)
+        # Don't exit when called from scheduler, just log and return
 
 
 if __name__ == "__main__":

@@ -92,7 +92,9 @@ if 'all'==ALLOW_CLASSES_STR:
 # Preview
 ROI_JPEG_QUALITY = int(config["preview"]["roi_jpeg_quality"])
 SHOW_PREVIEW = config["preview"]["show_preview"] == 1
-SHOW_PREVIEW = False
+# SHOW_PREVIEW = False
+# SHOW_PREVIEW = True
+
 FRAMES_PER_DRIFT_DETECTION = 30
 
 # Model update configuration
@@ -427,6 +429,9 @@ def main():
             #     print("\nCombined list:", minmax_boxes)
             # else:
             #     print("[Warning] No detections above threshold")
+            # Encode clean frame BEFORE drawing rectangles (for saving)
+            frame_b64 = bgr_to_b64jpg(frame)
+
             false_class_detected = False
             bboxes_filtered_new = []
             for result in minmax_boxes:
@@ -438,11 +443,11 @@ def main():
                         continue
                     roi_b64 = bgr_to_b64jpg(roi, quality=ROI_JPEG_QUALITY)
 
-                    # CLIP 검증
-                    clip_res = verify_with_clip(
-                        # roi_b64, model_name="ViT-L/14@336px", model_size="small"
-                        roi_b64, model_name="ViT-B/32", model_size="small"
-                    )
+                    # # CLIP 검증
+                    # clip_res = verify_with_clip(
+                    #     # roi_b64, model_name="ViT-L/14@336px", model_size="small"
+                    #     roi_b64, model_name="ViT-B/32", model_size="small"
+                    # )
                     # cls_name = clip_res["event_name"]
                     msg = {
                         "camera_id": CAMERA_ID,
@@ -452,9 +457,13 @@ def main():
                         "confidence": conf,
                         "bboxes": [x1, y1, x2, y2],
                         "roi_b64": roi_b64,
-                        "event": clip_res["event_name"],
-                        "similarity": clip_res["score"],
+                        "event": "none",
+                        "similarity": -1.0,
+                        # "event": clip_res["event_name"],
+                        # "similarity": clip_res["score"],
                     }
+
+                    # Draw rectangles for preview AFTER encoding (doesn't affect saved image)
                     if SHOW_PREVIEW:
                         label = f"{cls_name} {conf:.2f}"
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -465,7 +474,6 @@ def main():
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
                    
-                    frame_b64 = bgr_to_b64jpg(frame)
                     # Redis 대신 FastAPI로 전송
                     try:
                         resp = requests.post(VLM_URL, json=msg, timeout=10)
@@ -476,7 +484,7 @@ def main():
                                 false_class_detected = True
                             else:
                                 bboxes_filtered_new.append((conf, bbox, cls_name))
-                            db_insert_event(resp.json(), frame_b64,minmax_boxes)
+                            db_insert_event(resp.json(), frame_b64, minmax_boxes)
                         else:
                             logging.error(f"HTTP {resp.status_code}: {resp.text}")
                     except requests.exceptions.RequestException as e:
