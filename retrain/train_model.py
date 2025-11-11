@@ -400,6 +400,8 @@ def clean_merged_data_directory(output_dir):
     """
     Clean up the merged_data directory to prevent dataset accumulation
     Deletes the entire merged_data directory completely
+
+    SAFETY: Skips deletion if training might be in progress to avoid race conditions
     """
     output_path = Path(output_dir)
 
@@ -410,6 +412,29 @@ def clean_merged_data_directory(output_dir):
         logging.info(f"  Will be created fresh")
         logging.info(f"{'='*60}\n")
         return
+
+    # SAFETY CHECK: Check if any training processes might be using this directory
+    import psutil
+
+    # Check if any Python processes have files open in this directory
+    current_pid = os.getpid()
+    for proc in psutil.process_iter(['pid', 'name', 'open_files']):
+        try:
+            if proc.info['pid'] == current_pid:
+                continue  # Skip current process
+            if proc.info['name'] and 'python' in proc.info['name'].lower():
+                if proc.info['open_files']:
+                    for file in proc.info['open_files']:
+                        if str(output_path) in file.path:
+                            logging.warning(f"\n{'='*60}")
+                            logging.warning("⚠️ SKIPPING DELETION - Training in progress!")
+                            logging.warning(f"{'='*60}")
+                            logging.warning(f"  Another Python process (PID {proc.info['pid']}) has files open in {output_path}")
+                            logging.warning(f"  Will reuse existing merged_data directory")
+                            logging.warning(f"{'='*60}\n")
+                            return
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
 
     logging.info(f"\n{'='*60}")
     logging.info("DELETING ENTIRE MERGED_DATA DIRECTORY")
@@ -964,10 +989,10 @@ def train_model():
         cache=False,  # Cache images for faster training (first epoch will be slower)
 
         # 기본 파라미터
-        epochs=100,
-        patience=10,             # 조기 종료
-        # epochs=5,
-        # patience=3,             # 조기 종료
+        # epochs=100,
+        # patience=10,             # 조기 종료
+        epochs=5,
+        patience=3,             # 조기 종료
         imgsz=640,
         batch=16,
         
@@ -1703,6 +1728,90 @@ def compare_per_class_performance(old_results, new_results, class_names=None):
 
 def main():
     """메인 엔트리 포인트"""
+    # Load config to get lock timeout
+    config_path = os.path.join(base_abspath, "config.yaml")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    # Get training lock timeout from config (default: 6 hours)
+    drift_config = config.get("drift_detection", {})
+    lock_timeout_hours = drift_config.get("training_lock_timeout_hours", 6.0)
+    lock_timeout_seconds = int(lock_timeout_hours * 3600)
+
+    # Check if training is already in progress using a lock file
+    lock_file = Path(__file__).parent / "training.lock"
+
+    if lock_file.exists():
+        # Check if the lock is stale
+        import time
+        import psutil
+        lock_age = time.time() - lock_file.stat().st_mtime
+
+        try:
+            with open(lock_file, 'r') as f:
+                lock_content = f.read().strip()
+                # Parse lock file format: "timestamp|pid"
+                if '|' in lock_content:
+                    lock_timestamp, lock_pid_str = lock_content.split('|', 1)
+                    lock_pid = int(lock_pid_str)
+                else:
+                    # Old format (timestamp only)
+                    lock_timestamp = lock_content
+                    lock_pid = None
+        except Exception as e:
+            logging.warning(f"Failed to read lock file: {e}")
+            lock_timestamp = "Unknown"
+            lock_pid = None
+
+        if lock_age < lock_timeout_seconds:  # lock is fresh
+            msg = f"Training is already in progress (locked at {lock_timestamp}). Skipping new training request."
+            logging.warning(f"\n{'='*60}")
+            logging.warning(f"⚠️ {msg}")
+            logging.warning(f"{'='*60}\n")
+            print(f"TRAINING_IN_PROGRESS: {msg}")
+            return
+        else:
+            # Stale lock detected - kill the process if still running
+            logging.warning(f"Found stale lock file (age: {lock_age/3600:.1f} hours, timeout: {lock_timeout_hours} hours)")
+
+            if lock_pid:
+                try:
+                    # Check if process is still running
+                    if psutil.pid_exists(lock_pid):
+                        proc = psutil.Process(lock_pid)
+                        proc_name = proc.name()
+
+                        # Verify it's a Python process (safety check)
+                        if 'python' in proc_name.lower():
+                            logging.warning(f"Killing stale training process (PID: {lock_pid}, name: {proc_name})")
+                            proc.kill()  # Force kill the process
+                            proc.wait(timeout=10)  # Wait for process to terminate
+                            logging.info(f"Successfully killed stale process (PID: {lock_pid})")
+                        else:
+                            logging.warning(f"Process {lock_pid} is not a Python process ({proc_name}), skipping kill")
+                    else:
+                        logging.info(f"Process {lock_pid} no longer exists")
+                except psutil.NoSuchProcess:
+                    logging.info(f"Process {lock_pid} already terminated")
+                except psutil.AccessDenied:
+                    logging.error(f"Access denied when trying to kill process {lock_pid}")
+                except Exception as e:
+                    logging.error(f"Error killing stale process: {e}")
+
+            # Remove stale lock file
+            lock_file.unlink()
+            logging.info("Removed stale lock file")
+
+    # Create lock file with timestamp and PID
+    try:
+        from datetime import datetime
+        current_pid = os.getpid()
+        with open(lock_file, 'w') as f:
+            f.write(f"{datetime.now().isoformat()}|{current_pid}")
+        logging.info(f"Created training lock file: {lock_file} (PID: {current_pid})")
+    except Exception as e:
+        logging.error(f"Failed to create lock file: {e}")
+
     try:
         logging.info(f"\n=== YOLO Model Retraining Process Started ===")
 
@@ -1750,7 +1859,27 @@ def main():
         import traceback
         logging.error("[ERROR] Model retraining failed!")
         logging.error(traceback.format_exc())
+    finally:
+        # Always remove lock file when training completes or fails
+        try:
+            if lock_file.exists():
+                lock_file.unlink()
+                logging.info(f"Removed training lock file: {lock_file}")
+        except Exception as e:
+            logging.error(f"Failed to remove lock file: {e}")
 
 
 if __name__ == "__main__":
+    # Check if training is already in progress using a lock file
+    lock_file = Path(__file__).parent / "training.lock"
+    # 락 파일 존재 시 삭제
+    if lock_file.exists():
+        try:
+            lock_file.unlink()
+            logging.info(f"✅ Deleted existing lock file: {lock_file}")
+        except Exception as e:
+            logging.error(f"⚠️ Failed to delete lock file: {e}")
+    else:
+        logging.info("ℹ️ No existing lock file found.")  
+
     main()

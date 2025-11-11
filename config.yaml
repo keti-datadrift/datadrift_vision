@@ -1,7 +1,7 @@
 datadrift_table: datadrift_db  # PostgreSQL 테이블명 (데이터 드리프트 저장용)
 datasets:
   base_path: ../datasets  # 학습 데이터셋 저장 경로
-  objdet_save_data: false  # 객체 감지 시 원본 데이터 저장 여부 (true: 모든 프레임 저장, false: VLM 검증된 것만)
+  objdet_save_data: true  # 객체 감지 시 원본 데이터 및 레이블링 데이터 저장 여부 (true: 모든 프레임 저장, false: VLM 검증된 것만)
   use_last_merged_data_4train: false  # 재학습 시 이전 병합 데이터 재사용 여부
 server:
   ip: 0.0.0.0  # FastAPI 서버 바인딩 IP (0.0.0.0: 모든 인터페이스, 127.0.0.1: localhost만)
@@ -19,7 +19,7 @@ yolo_model:
   model_name: .\model\yolov8nGender_20251111_v1.pt  # 현재 사용 중인 YOLO 모델 경로 (재학습 시 자동 업데이트됨)
   conf_thresh: 0.5  # 객체 검출 confidence 임계값 (0.0~1.0, 낮을수록 더 많이 검출하지만 오탐 증가)
   allow_classes: all  # 검출 허용 클래스 (all: 모든 클래스, 또는 ['person', 'car'] 등 리스트)
-  criteria_classes: person  # 드리프트 감지 대상 클래스 (cron_config.yaml의 class_name과 일치해야 함)
+  criteria_classes: person  # 드리프트 감지 대상 클래스 (drift_detection에서 참조됨)
   last_model_update: '2025-11-11T04:53:25.845919'  # 마지막 모델 업데이트 시각 (자동 갱신됨, cooldown 계산에 사용)
 model_update:
   overall_map_threshold: 0.0  # 전체 mAP 임계값 (새 모델이 이 값 이상이면 배포 가능)
@@ -29,9 +29,13 @@ model_update:
   config_check_interval: 10.0  # config.yaml 변경사항 체크 주기 (초 단위, 실시간 반영용)
 drift_detection:
   drift_check_period: 1 days  # 드리프트 체크 시 분석할 데이터 기간 (PostgreSQL interval 형식)
+  drift_check_interval_minutes: 60  # 드리프트 체크 주기 (분, 너무 짧으면 부하 증가, 너무 길면 대응 지연, 권장: 10~30분)
+  threshold: 0.081  # 드리프트 임계값 (0.0~1.0, false_ratio >= threshold이면 감지, 낮을수록 민감, 높을수록 둔감)
   cooldown_after_update: 30 minutes  # 모델 업데이트 후 드리프트 체크 쿨다운 기간 (새 모델 안정화 대기 시간)
+  training_lock_timeout_hours: 6  # 학습 lock 파일 타임아웃 (시간, 이 시간 초과 시 stale로 간주하고 프로세스 강제 종료)
   partition_create_hour: 23  # 일별 파티션 생성 시각 (시)
   partition_create_minute: 0  # 일별 파티션 생성 시각 (분)
+  # NOTE: 드리프트 모니터링 클래스는 yolo_model.criteria_classes를 사용
 preview:
   roi_jpeg_quality: 80  # 미리보기 이미지 JPEG 품질 (0~100, 높을수록 용량 증가)
   show_preview: 0  # 실시간 미리보기 창 표시 여부 (0: 끄기, 1: 켜기)

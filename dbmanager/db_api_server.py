@@ -12,11 +12,46 @@ import os
 import yaml
 import logging
 import sys
+import subprocess, time, psutil
+import atexit, signal
 from pathlib import Path
+
+base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+# lock_file = Path(base_abspath) / "training.lock"
+lock_file = Path(base_abspath) / "retrain" / "training.lock"
+# 락 파일 존재 시 삭제
+if lock_file.exists():
+    try:
+        lock_file.unlink()
+        logging.info(f"✅ Deleted existing lock file: {lock_file}")
+    except Exception as e:
+        logging.error(f"⚠️ Failed to delete lock file: {e}")
+else:
+    logging.info("ℹ️ No existing lock file found.")
+
+def cleanup_lock():
+    """프로세스 종료 시 락 파일 자동 삭제"""
+    if lock_file.exists():
+        try:
+            lock_file.unlink()
+            logging.info("✅ Lock file removed on exit")
+        except Exception as e:
+            logging.error(f"⚠️ Failed to remove lock file: {e}")
+
+# atexit: 정상 종료 시 실행
+atexit.register(cleanup_lock)
+
+# signal: 강제 종료(Ctrl+C, kill 등) 시 실행
+def handle_signal(sig, frame):
+    cleanup_lock()
+    sys.exit(0)
+
+for s in (signal.SIGINT, signal.SIGTERM, signal.SIGABRT):
+    signal.signal(s, handle_signal)
 
 def setup_logging():
     """Setup logging to both file and console"""
-    base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    # base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     log_dir = Path(__file__).parent / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"db_api_server_{datetime.now().strftime('%Y%m%d')}.log"
@@ -360,19 +395,189 @@ async def db_check_drift(
 async def db_retrain():
     """재학습 - 백그라운드 프로세스로 train_model.py 실행"""
     try:
-        import subprocess
+        # Load configuration
+        config_path = Path(base_abspath) / "config.yaml"
+        with open(config_path, encoding="utf-8") as f:
+            cfg = yaml.full_load(f)
 
-        # 백그라운드에서 학습 프로세스 시작
-        subprocess.Popen(["python", f"{base_abspath}/retrain/train_model.py"])
+        drift_cfg = cfg.get("drift_detection", {})
+        lock_timeout_hours = drift_cfg.get("training_lock_timeout_hours", 6.0)
+        # lock_timeout_seconds = int(lock_timeout_hours * 3600)
+
+        # Define lock file path
+        # lock_file = Path(base_abspath) / "retrain" / "training.lock"
+
+        # ----------------------------
+        # 1️⃣ 락 파일 존재 시 PID 검증
+        # ----------------------------
+        # if lock_file.exists():
+        #     lock_age = time.time() - lock_file.stat().st_mtime
+        #     lock_pid = None
+        #     lock_timestamp = "Unknown"
+
+        #     try:
+        #         with open(lock_file, "r") as f:
+        #             content = f.read().strip()
+        #             if "|" in content:
+        #                 lock_timestamp, pid_str = content.split("|", 1)
+        #                 lock_pid = int(pid_str)
+        #             else:
+        #                 lock_timestamp = content
+        #     except Exception as e:
+        #         logging.warning(f"Failed to read lock file: {e}")
+
+        #     # PID 유효성 검증
+        #     if lock_pid and psutil.pid_exists(lock_pid):
+        #         msg = f"⚠️ Training already in progress (PID {lock_pid}, started {lock_timestamp})"
+        #         logging.warning(msg)
+        #         return {
+        #             "status": "in_progress",
+        #             "message": msg,
+        #             "lock_pid": lock_pid,
+        #             "lock_created_at": lock_timestamp,
+        #             "lock_timeout_hours": lock_timeout_hours
+        #         }
+
+        #     # 프로세스가 죽었지만 락이 남아있을 경우
+        #     if not lock_pid or not psutil.pid_exists(lock_pid):
+        #         if lock_age > lock_timeout_seconds:
+        #             logging.warning(f"🧹 Removing stale lock (age {lock_age/3600:.1f}h, PID {lock_pid})")
+        #             try:
+        #                 lock_file.unlink()
+        #             except Exception as e:
+        #                 logging.error(f"Failed to remove stale lock file: {e}")
+        #         else:
+        #             logging.info(f"Lock file found but PID not active (younger than timeout, {lock_age/3600:.1f}h)")
+        #             try:
+        #                 lock_file.unlink()  # 즉시 제거 (안전)
+        #                 logging.info("Removed orphan lock file")
+        #             except Exception as e:
+        #                 logging.error(f"Failed to remove orphan lock file: {e}")
+
+        # --------------------------------
+        # 2️⃣ 백그라운드에서 학습 프로세스 시작
+        # --------------------------------
+        process = subprocess.Popen(
+            ["python", f"{base_abspath}/retrain/train_model.py"],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        )
+
+        # # 락 파일 생성 (PID + Timestamp 기록)
+        # try:
+        #     with open(lock_file, "w") as f:
+        #         f.write(f"{datetime.now().isoformat()}|{process.pid}")
+        #     logging.info(f"Created training lock file: {lock_file} (PID {process.pid})")
+        # except Exception as e:
+        #     logging.error(f"Failed to create lock file: {e}")
 
         return {
             "status": "success",
-            "message": "Training started in background"
+            "message": "Training started in background",
+            "pid": process.pid,
+            "lock_file": str(lock_file),
+            "lock_timeout_hours": lock_timeout_hours
         }
 
-    except Exception as e:
+    except Exception:
         logging.error(f"Error in db_retrain: {traceback.format_exc()}")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Unexpected error occurred"}
+# async def db_retrain():
+#     """재학습 - 백그라운드 프로세스로 train_model.py 실행"""
+#     try:
+#         import subprocess
+#         from pathlib import Path
+#         import time
+#         import psutil
+
+#         # Load config to get lock timeout
+#         with open(base_abspath+'/config.yaml', encoding='utf-8') as f:
+#             cfg = yaml.full_load(f)
+
+#         # Get training lock timeout from config (default: 6 hours)
+#         drift_config = cfg.get("drift_detection", {})
+#         lock_timeout_hours = drift_config.get("training_lock_timeout_hours", 6)
+#         lock_timeout_seconds = lock_timeout_hours * 3600
+
+#         # Check if training is already in progress
+#         lock_file = Path(base_abspath) / "retrain" / "training.lock"
+
+#         if lock_file.exists():
+#             # Check if lock is stale
+#             lock_age = time.time() - lock_file.stat().st_mtime
+
+#             try:
+#                 with open(lock_file, 'r') as f:
+#                     lock_content = f.read().strip()
+#                     # Parse lock file format: "timestamp|pid"
+#                     if '|' in lock_content:
+#                         lock_timestamp, lock_pid_str = lock_content.split('|', 1)
+#                         lock_pid = int(lock_pid_str)
+#                     else:
+#                         # Old format (timestamp only)
+#                         lock_timestamp = lock_content
+#                         lock_pid = None
+#             except Exception as e:
+#                 logging.warning(f"Failed to read lock file: {e}")
+#                 lock_timestamp = "Unknown"
+#                 lock_pid = None
+
+#             if lock_age < lock_timeout_seconds:  # lock is fresh
+#                 msg = f"Training is already in progress (started at {lock_timestamp})"
+#                 logging.warning(f"⚠️ {msg}")
+
+#                 return {
+#                     "status": "in_progress",
+#                     "message": msg,
+#                     "lock_created_at": lock_timestamp,
+#                     "lock_pid": lock_pid,
+#                     "lock_timeout_hours": lock_timeout_hours
+#                 }
+#             else:
+#                 # Stale lock detected - kill the process if still running
+#                 logging.warning(f"Found stale lock file (age: {lock_age/3600:.1f} hours, timeout: {lock_timeout_hours} hours)")
+
+#                 if lock_pid:
+#                     try:
+#                         # Check if process is still running
+#                         if psutil.pid_exists(lock_pid):
+#                             proc = psutil.Process(lock_pid)
+#                             proc_name = proc.name()
+
+#                             # Verify it's a Python process (safety check)
+#                             if 'python' in proc_name.lower():
+#                                 logging.warning(f"Killing stale training process (PID: {lock_pid}, name: {proc_name})")
+#                                 proc.kill()  # Force kill the process
+#                                 proc.wait(timeout=10)  # Wait for process to terminate
+#                                 logging.info(f"Successfully killed stale process (PID: {lock_pid})")
+#                             else:
+#                                 logging.warning(f"Process {lock_pid} is not a Python process ({proc_name}), skipping kill")
+#                         else:
+#                             logging.info(f"Process {lock_pid} no longer exists")
+#                     except psutil.NoSuchProcess:
+#                         logging.info(f"Process {lock_pid} already terminated")
+#                     except psutil.AccessDenied:
+#                         logging.error(f"Access denied when trying to kill process {lock_pid}")
+#                     except Exception as e:
+#                         logging.error(f"Error killing stale process: {e}")
+
+#                 # Remove stale lock file
+#                 try:
+#                     lock_file.unlink()
+#                     logging.info("Removed stale lock file")
+#                 except Exception as e:
+#                     logging.error(f"Failed to remove stale lock file: {e}")
+
+#         # 백그라운드에서 학습 프로세스 시작
+#         subprocess.Popen(["python", f"{base_abspath}/retrain/train_model.py"])
+
+#         return {
+#             "status": "success",
+#             "message": "Training started in background"
+#         }
+
+#     except Exception as e:
+#         logging.error(f"Error in db_retrain: {traceback.format_exc()}")
+#         return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     # uvicorn.run(app, host="127.0.0.1", port=8000)

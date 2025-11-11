@@ -23,24 +23,30 @@ def scheduled_job():
 def main():
     """APScheduler 초기화 및 주기 설정"""
     try:
-        config = load_config()
+        # Load cron_config.yaml for API and logging settings
+        cron_config = load_config()
         setup_logging(
-            log_file=config.get("logging", {}).get("log_file", "logs/drift_scheduler.log"),
-            log_level=config.get("logging", {}).get("log_level", "INFO")
+            log_file=cron_config.get("logging", {}).get("log_file", "logs/drift_scheduler.log"),
+            log_level=cron_config.get("logging", {}).get("log_level", "INFO")
         )
+
+        # Load main config.yaml for drift detection settings
+        import yaml
+        import os
+        base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        with open(os.path.join(base_abspath, "config.yaml"), encoding="utf-8") as f:
+            main_config = yaml.safe_load(f)
+
         # at the beginning
         do_create_table()
         do_create_partition()
         drift_check_main()
 
-        # Get partition creation schedule from main config
-        drift_config = config.get('drift_detection', {})
+        # Get drift detection settings from main config
+        drift_config = main_config.get('drift_detection', {})
         partition_hour = drift_config.get('partition_create_hour', 23)
         partition_minute = drift_config.get('partition_create_minute', 0)
-
-        # Get drift check interval from scheduler config
-        scheduler_config = config.get('scheduler', {})
-        drift_check_interval = scheduler_config.get('drift_check_interval_minutes', 20)
+        drift_check_interval = drift_config.get('drift_check_interval_minutes', 60)
 
         # scheduling
         scheduler = BackgroundScheduler()

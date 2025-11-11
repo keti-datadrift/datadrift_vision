@@ -109,12 +109,20 @@ def main():
         drift_api_url = f"http://{db_host}:{db_port}/api/db_check_drift/"
         retrain_api_url = f"http://{db_host}:{db_port}/api/db_retrain/"
 
-        # Get drift detection parameters from config
-        drift_params = config.get("drift_params", {})
+        # Load main config.yaml for drift detection parameters
+        import yaml
+        main_config_path = Path(base_abspath) / "config.yaml"
+        with open(main_config_path, encoding="utf-8") as f:
+            main_config = yaml.safe_load(f)
+
+        # Get drift detection parameters from main config
+        drift_detection = main_config.get("drift_detection", {})
+        yolo_model = main_config.get("yolo_model", {})
+
         params = {
-            "period": drift_params.get("period", "1 day"),
-            "class_name": drift_params.get("class_name", "person"),
-            "threshold": drift_params.get("threshold", 0.06)
+            "period": drift_detection.get("drift_check_period", "1 day"),
+            "class_name": yolo_model.get("criteria_classes", "person"),  # Use criteria_classes from yolo_model
+            "threshold": drift_detection.get("threshold", 0.08)
         }
 
         logging.info(f"Drift detection parameters: {params}")
