@@ -1603,12 +1603,12 @@ def check_model_update_criteria(eval_results, per_class_comparison):
     model_update_config = config.get("model_update", {})
     overall_threshold = float(model_update_config.get("overall_map_threshold", -1))
     criteria_class_threshold = float(model_update_config.get("criteria_class_map_threshold", 0.03))
-    auto_update = model_update_config.get("auto_update", True)
+    auto_use_updated_model = model_update_config.get("auto_use_updated_model", True)
 
     # Get criteria class
     criteria_class = config.get("yolo_model", {}).get("criteria_classes", "person")
 
-    if not auto_update:
+    if not auto_use_updated_model:
         return False, "Auto-update is disabled in config"
 
     if not eval_results or not eval_results.get('old_model') or not eval_results.get('new_model'):

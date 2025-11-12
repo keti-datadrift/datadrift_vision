@@ -23,7 +23,7 @@ video:
 yolo_model:
   original_model_name: .\model\yolov8n_gdr.pt  # 원본 베이스라인 모델 (수동 설정)
   updated_model_name: .\model\yolov8n_gdr_20251112_v3.pt  # 재학습된 최신 모델 (자동 갱신)
-  use_original_model: false  # true: original 사용 / false: updated 사용
+  use_original_model: true  # true: original 사용 / false: updated 사용
   conf_thresh: 0.5  # 객체 검출 confidence 임계값 (0.0~1.0)
   allow_classes: all  # 검출 허용 클래스 (all 또는 [0, 2, 3] 형식)
   criteria_classes: person  # 드리프트 감지 및 성능 평가 기준 클래스
@@ -32,7 +32,7 @@ yolo_model:
 model_update:
   overall_map_threshold: 0.0  # 전체 mAP 개선 임계값 (새 모델이 이 값 이상 개선되어야 배포)
   criteria_class_map_threshold: 0.01  # 기준 클래스 mAP 개선 임계값 (person 클래스 기준)
-  auto_update: true  # 학습 후 자동으로 updated_model_name 갱신 여부
+  auto_use_updated_model: true  # 학습 후 자동으로 updated_model_name 갱신 여부
   backup_old_model: false  # 모델 업데이트 시 이전 모델 백업 여부
   config_check_interval: 10.0  # config 변경 감지 주기, 최신 yolo 모델 업데이트 여부 확인하는 주기 (초)
   monitor_train: false  # 학습 시 monitoring_train.py 자동 실행 (실시간 그래프)
