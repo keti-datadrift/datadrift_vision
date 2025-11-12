@@ -35,7 +35,7 @@ def setup_logging():
 
     # File handler
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)  # Changed from DEBUG to INFO
     file_handler.setFormatter(file_formatter)
 
     # Console handler
@@ -45,9 +45,16 @@ def setup_logging():
 
     # Configure root logger
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)  # Changed from DEBUG to INFO
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+    # Suppress verbose logging from third-party libraries
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib.font_manager').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('ultralytics').setLevel(logging.INFO)
 
 
 def get_active_model_name(config):
@@ -916,9 +923,12 @@ def train_model():
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    # Get active model based on use_original_model flag
-    YOLO_MODEL = get_active_model_name(config)
+    # Always start training from the original baseline model, not the currently active updated model
+    # This ensures consistent training and prevents training from an already-updated model
+    YOLO_MODEL = config.get("yolo_model", {}).get("original_model_name", "./model/yolov8n_gdr.pt")
     CONF_THRESH = float(config["yolo_model"]["conf_thresh"])
+
+    logging.info(f"Training will start from original baseline model: {YOLO_MODEL}")
     
     # Dataset paths
     # dataset_dir = os.path.join(base_abspath, "datasets", "splitted")
@@ -1033,10 +1043,9 @@ def train_model():
     if use_previous_model_final:
         logging.info(f"\n🔄 Fine-tuning mode: Loading previous trained model")
         model = YOLO(prev_model_path)
-        lr0 = 0.0001  # Low LR for fine-tuning
-        lrf = 0.1
-        # lr0 = 0.001  # Low LR for fine-tuning
-        # lrf = 0.01
+        # lr0 = 0.0001  # Low LR for fine-tuning
+        lr0 = 0.001  # Low LR for fine-tuning
+        lrf = 0.01
         logging.info(f"   Model: {prev_model_path}")
         logging.info(f"   Learning rate: {lr0}")
     else:
@@ -1044,97 +1053,154 @@ def train_model():
         if USE_PREV_MODEL and prev_model_path is None:
             logging.info(f"   Note: USE_PREV_MODEL=True but no previous model found")
         model = YOLO(YOLO_MODEL)
-        lr0 = 0.0001  # Higher LR for fresh training
+        lr0 = 0.001  # Higher LR for fresh training
         lrf = 0.01
         logging.info(f"   Model: {YOLO_MODEL}")
         logging.info(f"   Learning rate: {lr0}")
     
     logging.info(f"\n[{datetime.now()}] Training started...")
-    
-    # 2️⃣ 학습 시작
-    results = model.train(
-        data=yaml_path,            # 데이터셋 경로
-        epochs=150,                  # 학습 반복 횟수
-        batch=16,                    # 배치 크기
-        imgsz=640,                   # 입력 이미지 크기
-        optimizer="SGD",             # 최적화 알고리즘 (SGD)
-        lr0=0.0001,                    # 초기 학습률
-        lrf=0.01,                    # 최종 학습률 비율
-        momentum=0.937,              # SGD 모멘텀
-        weight_decay=0.0005,         # 가중치 감쇠 (정규화)
-        patience=20,                 # 조기 종료 patience
-        hsv_h=0.015,                 # 색조 증강
-        hsv_s=0.7,                   # 채도 증강
-        hsv_v=0.4,                   # 명도 증강
-        degrees=0.0,                 # 회전 없음
-        translate=0.1,               # 위치 이동
-        scale=0.5,                   # 확대/축소
-        shear=0.0,                   # 기울이기 없음
-        flipud=0.0,                  # 상하 반전 없음
-        fliplr=0.5,                  # 좌우 반전 확률
-        mosaic=1.0,                  # mosaic 합성
-        mixup=0.1,                   # mixup 비율
-        project=runs_dir,        # 결과 저장 폴더
-        name="retrain", # 세션 이름
-        exist_ok=True,               # 기존 폴더 덮어쓰기 허용
-        pretrained=True              # 사전학습 가중치 사용
-    )
+
+    # Setup YOLO training callbacks to log epoch progress
+    def on_train_epoch_end(trainer):
+        """Callback to log training metrics after each epoch"""
+        # trainer.epoch is 0-indexed, add 1 for display
+        epoch = trainer.epoch + 1
+        metrics = trainer.metrics
+
+        # Log basic training info
+        logging.info(f"{'='*60}")
+        logging.info(f"Epoch {epoch}/{trainer.epochs} completed")
+
+        # Log loss values if available
+        if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+            try:
+                box_loss, cls_loss, dfl_loss = trainer.loss_items
+                logging.info(f"  Training losses - box: {box_loss:.4f}, cls: {cls_loss:.4f}, dfl: {dfl_loss:.4f}")
+            except:
+                pass
+
+        # Log validation metrics if available
+        if metrics:
+            try:
+                # Log all available metrics
+                for key, value in metrics.items():
+                    if isinstance(value, (int, float)):
+                        logging.info(f"  {key}: {value:.4f}")
+            except Exception as e:
+                logging.debug(f"Could not log validation metrics: {e}")
+
+    def on_train_start(trainer):
+        """Log when training starts"""
+        logging.info(f"{'='*60}")
+        logging.info(f"Training started with {trainer.epochs} epochs")
+        logging.info(f"Batch size: {trainer.batch_size}")
+        logging.info(f"Input image resolution: {trainer.args.imgsz}x{trainer.args.imgsz} pixels")
+
+        # Log dataset info if available
+        if hasattr(trainer, 'train_loader') and trainer.train_loader:
+            total_batches = len(trainer.train_loader)
+            total_images = total_batches * trainer.batch_size
+            logging.info(f"Training images: ~{total_images} (in {total_batches} batches)")
+
+        logging.info(f"{'='*60}")
+
+    def on_train_end(trainer):
+        """Log when training ends"""
+        logging.info(f"{'='*60}")
+        logging.info(f"Training completed!")
+        logging.info(f"Best model saved to: {trainer.best}")
+        logging.info(f"{'='*60}")
+
+    # Add callbacks to model
+    model.add_callback("on_train_start", on_train_start)
+    model.add_callback("on_train_epoch_end", on_train_epoch_end)
+    model.add_callback("on_train_end", on_train_end)
+
+    # # 2️⃣ 학습 시작
     # results = model.train(
-    #     # 데이터
-    #     data=yaml_path,  # ⭐ 병합된 데이터 사용
-    #     cache=False,  # Cache images for faster training (first epoch will be slower)
-
-    #     # 기본 파라미터
-    #     epochs=100,
-    #     patience=10,             # 조기 종료
-    #     # epochs=5,
-    #     # patience=3,             # 조기 종료
-    #     imgsz=640,
-    #     batch=16,
-        
-    #     # 학습률 (기존 지식 보존용 낮은 LR)
-    #     lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
-    #     lrf=lrf,
-    #     optimizer='AdamW',
-    #     warmup_epochs=3,
-    #     warmup_momentum=0.8,
-        
-    #     # 정규화 (과적합 방지)
-    #     weight_decay=0.0005,
-    #     dropout=0.0,
-        
-    #     # 레이어 동결 (선택적)
-    #     freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
-        
-    #     # 데이터 증강
-    #     hsv_h=0.015,
-    #     hsv_s=0.7,
-    #     hsv_v=0.4,
-    #     degrees=10,
-    #     translate=0.1,
-    #     scale=0.5,
-    #     shear=0.0,
-    #     perspective=0.0,
-    #     flipud=0.0,
-    #     fliplr=0.5,
-    #     mosaic=1.0,              # 모자이크 증강
-    #     mixup=0.1,               # 믹스업
-    #     copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
-        
-    #     # 저장 및 로깅
-    #     save=True,
-    #     save_period=10,
-    #     plots=True,
-        
-    #     # 하드웨어
-    #     device=0,
-    #     workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
-
-    #     # 프로젝트
-    #     # project='runs/train',
-    #     project=runs_dir,
-    #     name='retrain'
+    #     data=yaml_path,            # 데이터셋 경로
+    #     epochs=150,                  # 학습 반복 횟수
+    #     batch=16,                    # 배치 크기
+    #     imgsz=640,                   # 입력 이미지 크기
+    #     optimizer="SGD",             # 최적화 알고리즘 (SGD)
+    #     lr0=lr0,                    # 초기 학습률
+    #     lrf=lrf,                    # 최종 학습률 비율
+    #     momentum=0.937,              # SGD 모멘텀
+    #     weight_decay=0.0005,         # 가중치 감쇠 (정규화)
+    #     patience=20,                 # 조기 종료 patience
+    #     hsv_h=0.015,                 # 색조 증강
+    #     hsv_s=0.7,                   # 채도 증강
+    #     hsv_v=0.4,                   # 명도 증강
+    #     degrees=0.0,                 # 회전 없음
+    #     translate=0.1,               # 위치 이동
+    #     scale=0.5,                   # 확대/축소
+    #     shear=0.0,                   # 기울이기 없음
+    #     flipud=0.0,                  # 상하 반전 없음
+    #     fliplr=0.5,                  # 좌우 반전 확률
+    #     mosaic=1.0,                  # mosaic 합성
+    #     mixup=0.1,                   # mixup 비율
+    #     project=runs_dir,        # 결과 저장 폴더
+    #     name="retrain", # 세션 이름
+    #     exist_ok=True,               # 기존 폴더 덮어쓰기 허용
+    #     pretrained=True,             # 사전학습 가중치 사용
+    #     verbose=True                 # Enable verbose output
     # )
+    results = model.train(
+        # 데이터
+        data=yaml_path,  # ⭐ 병합된 데이터 사용
+        cache=False,  # Cache images for faster training (first epoch will be slower)
+
+        # 기본 파라미터
+        epochs=100,
+        patience=10,             # 조기 종료
+        # epochs=5,
+        # patience=3,             # 조기 종료
+        imgsz=640,
+        batch=16,
+        
+        # 학습률 (기존 지식 보존용 낮은 LR)
+        lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
+        lrf=lrf,
+        optimizer='AdamW',
+        warmup_epochs=3,
+        warmup_momentum=0.8,
+        
+        # 정규화 (과적합 방지)
+        weight_decay=0.0005,
+        dropout=0.0,
+        
+        # 레이어 동결 (선택적)
+        freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
+        
+        # 데이터 증강
+        hsv_h=0.015,
+        hsv_s=0.7,
+        hsv_v=0.4,
+        degrees=10,
+        translate=0.1,
+        scale=0.5,
+        shear=0.0,
+        perspective=0.0,
+        flipud=0.0,
+        fliplr=0.5,
+        mosaic=1.0,              # 모자이크 증강
+        mixup=0.1,               # 믹스업
+        copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
+        
+        # 저장 및 로깅
+        save=True,
+        save_period=10,
+        plots=True,
+        
+        # 하드웨어
+        device=0,
+        workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
+
+        # 프로젝트
+        # project='runs/train',
+        project=runs_dir,
+        name='retrain'
+    )
     logging.info(f"\n[{datetime.now()}] Training completed!")
     logging.info(f"Results saved to: {results.save_dir}")
 
@@ -1225,17 +1291,18 @@ def evaluate_old_and_new_models():
     
     results = {}
     
-    # Step 1: OLD model
+    # Step 1: OLD model (baseline original model, not currently active updated model)
     logging.info(f"\n{'='*60}")
-    logging.info("Step 1: Evaluating OLD model on test set")
+    logging.info("Step 1: Evaluating OLD (original) model on test set")
     logging.info(f"{'='*60}")
-    
-    # config.yaml에서 구 모델 경로 가져오기
+
+    # Always use original_model_name as the baseline for comparison
+    # NOT get_active_model_name() which could be an updated model
     config_path = os.path.join(base_abspath, "config.yaml")
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        old_model_name = get_active_model_name(config)
+        old_model_name = config.get("yolo_model", {}).get("original_model_name", "./model/yolov8n_gdr.pt")
     else:
         old_model_name = "./model/yolov8n_gdr.pt"
 
