@@ -173,6 +173,9 @@ vision_analysis/README.md
 .backup/
 ivx_4modules.zip
 README.md
+
+# Model files - ignore all .pt files except yolov8n_gdr.pt
 model/*.pt
+!model/yolov8n_gdr.pt
 model/model_note.txt
 

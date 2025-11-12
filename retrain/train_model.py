@@ -1116,91 +1116,91 @@ def train_model():
     model.add_callback("on_train_epoch_end", on_train_epoch_end)
     model.add_callback("on_train_end", on_train_end)
 
-    # # 2️⃣ 학습 시작
-    # results = model.train(
-    #     data=yaml_path,            # 데이터셋 경로
-    #     epochs=150,                  # 학습 반복 횟수
-    #     batch=16,                    # 배치 크기
-    #     imgsz=640,                   # 입력 이미지 크기
-    #     optimizer="SGD",             # 최적화 알고리즘 (SGD)
-    #     lr0=lr0,                    # 초기 학습률
-    #     lrf=lrf,                    # 최종 학습률 비율
-    #     momentum=0.937,              # SGD 모멘텀
-    #     weight_decay=0.0005,         # 가중치 감쇠 (정규화)
-    #     patience=20,                 # 조기 종료 patience
-    #     hsv_h=0.015,                 # 색조 증강
-    #     hsv_s=0.7,                   # 채도 증강
-    #     hsv_v=0.4,                   # 명도 증강
-    #     degrees=0.0,                 # 회전 없음
-    #     translate=0.1,               # 위치 이동
-    #     scale=0.5,                   # 확대/축소
-    #     shear=0.0,                   # 기울이기 없음
-    #     flipud=0.0,                  # 상하 반전 없음
-    #     fliplr=0.5,                  # 좌우 반전 확률
-    #     mosaic=1.0,                  # mosaic 합성
-    #     mixup=0.1,                   # mixup 비율
-    #     project=runs_dir,        # 결과 저장 폴더
-    #     name="retrain", # 세션 이름
-    #     exist_ok=True,               # 기존 폴더 덮어쓰기 허용
-    #     pretrained=True,             # 사전학습 가중치 사용
-    #     verbose=True                 # Enable verbose output
-    # )
+    # 2️⃣ 학습 시작
     results = model.train(
-        # 데이터
-        data=yaml_path,  # ⭐ 병합된 데이터 사용
-        cache=False,  # Cache images for faster training (first epoch will be slower)
-
-        # 기본 파라미터
-        epochs=100,
-        patience=10,             # 조기 종료
-        # epochs=5,
-        # patience=3,             # 조기 종료
-        imgsz=640,
-        batch=16,
-        
-        # 학습률 (기존 지식 보존용 낮은 LR)
-        lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
-        lrf=lrf,
-        optimizer='AdamW',
-        warmup_epochs=3,
-        warmup_momentum=0.8,
-        
-        # 정규화 (과적합 방지)
-        weight_decay=0.0005,
-        dropout=0.0,
-        
-        # 레이어 동결 (선택적)
-        freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
-        
-        # 데이터 증강
-        hsv_h=0.015,
-        hsv_s=0.7,
-        hsv_v=0.4,
-        degrees=10,
-        translate=0.1,
-        scale=0.5,
-        shear=0.0,
-        perspective=0.0,
-        flipud=0.0,
-        fliplr=0.5,
-        mosaic=1.0,              # 모자이크 증강
-        mixup=0.1,               # 믹스업
-        copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
-        
-        # 저장 및 로깅
-        save=True,
-        save_period=10,
-        plots=True,
-        
-        # 하드웨어
-        device=0,
-        workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
-
-        # 프로젝트
-        # project='runs/train',
-        project=runs_dir,
-        name='retrain'
+        data=yaml_path,            # 데이터셋 경로
+        epochs=150,                  # 학습 반복 횟수
+        batch=16,                    # 배치 크기
+        imgsz=640,                   # 입력 이미지 크기
+        optimizer="SGD",             # 최적화 알고리즘 (SGD)
+        lr0=lr0,                    # 초기 학습률
+        lrf=lrf,                    # 최종 학습률 비율
+        momentum=0.937,              # SGD 모멘텀
+        weight_decay=0.0005,         # 가중치 감쇠 (정규화)
+        patience=20,                 # 조기 종료 patience
+        hsv_h=0.015,                 # 색조 증강
+        hsv_s=0.7,                   # 채도 증강
+        hsv_v=0.4,                   # 명도 증강
+        degrees=0.0,                 # 회전 없음
+        translate=0.1,               # 위치 이동
+        scale=0.5,                   # 확대/축소
+        shear=0.0,                   # 기울이기 없음
+        flipud=0.0,                  # 상하 반전 없음
+        fliplr=0.5,                  # 좌우 반전 확률
+        mosaic=1.0,                  # mosaic 합성
+        mixup=0.1,                   # mixup 비율
+        project=runs_dir,        # 결과 저장 폴더
+        name="retrain", # 세션 이름
+        exist_ok=True,               # 기존 폴더 덮어쓰기 허용
+        pretrained=True,             # 사전학습 가중치 사용
+        verbose=True                 # Enable verbose output
     )
+    # results = model.train(
+    #     # 데이터
+    #     data=yaml_path,  # ⭐ 병합된 데이터 사용
+    #     cache=False,  # Cache images for faster training (first epoch will be slower)
+
+    #     # 기본 파라미터
+    #     epochs=100,
+    #     patience=10,             # 조기 종료
+    #     # epochs=5,
+    #     # patience=3,             # 조기 종료
+    #     imgsz=640,
+    #     batch=16,
+        
+    #     # 학습률 (기존 지식 보존용 낮은 LR)
+    #     lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
+    #     lrf=lrf,
+    #     optimizer='AdamW',
+    #     warmup_epochs=3,
+    #     warmup_momentum=0.8,
+        
+    #     # 정규화 (과적합 방지)
+    #     weight_decay=0.0005,
+    #     dropout=0.0,
+        
+    #     # 레이어 동결 (선택적)
+    #     freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
+        
+    #     # 데이터 증강
+    #     hsv_h=0.015,
+    #     hsv_s=0.7,
+    #     hsv_v=0.4,
+    #     degrees=10,
+    #     translate=0.1,
+    #     scale=0.5,
+    #     shear=0.0,
+    #     perspective=0.0,
+    #     flipud=0.0,
+    #     fliplr=0.5,
+    #     mosaic=1.0,              # 모자이크 증강
+    #     mixup=0.1,               # 믹스업
+    #     copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
+        
+    #     # 저장 및 로깅
+    #     save=True,
+    #     save_period=10,
+    #     plots=True,
+        
+    #     # 하드웨어
+    #     device=0,
+    #     workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
+
+    #     # 프로젝트
+    #     # project='runs/train',
+    #     project=runs_dir,
+    #     name='retrain'
+    # )
     logging.info(f"\n[{datetime.now()}] Training completed!")
     logging.info(f"Results saved to: {results.save_dir}")
 
