@@ -16,6 +16,10 @@ postgres:
   user: postgres
   password: postgres
 
+database:
+  partition_create_hour: 23  # DB 파티션 생성 시각 (시)
+  partition_create_minute: 0  # DB 파티션 생성 시각 (분)
+  
 video:
   source: D:/videos/105 Incredible Moments Caught on CCTV Camera.mp4  # 비디오 파일 경로 또는 RTSP URL
   camera_id: '007'  # 카메라 식별 ID
@@ -44,9 +48,7 @@ drift_detection:
   cooldown_after_update: 30 minutes  # 모델 업데이트 후 쿨다운 기간
   training_lock_timeout_hours: 6  # 학습 lock 타임아웃 (stale lock 제거 기준)
 
-database:
-  partition_create_hour: 23  # DB 파티션 생성 시각 (시)
-  partition_create_minute: 0  # DB 파티션 생성 시각 (분)
+
 
 preview:
   roi_jpeg_quality: 80  # ROI 이미지 JPEG 압축 품질 (0~100)
