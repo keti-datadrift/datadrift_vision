@@ -1,43 +1,53 @@
-datadrift_table: datadrift_db
+datadrift_table: datadrift_db  # PostgreSQL 테이블명
+
 datasets:
-  base_path: ../datasets
-  objdet_save_data: true
-  use_last_merged_data_4train: true
+  base_path: ../datasets  # 데이터셋 루트 디렉토리 (상대경로)
+  objdet_save_data: true  # 검출된 객체 이미지를 DB에 저장할지 여부
+  use_last_merged_data_4train: true  # true: 기존 merged 데이터 재사용 / false: 새로 병합
+
 server:
-  ip: 0.0.0.0
-  port: 18880
+  ip: 0.0.0.0  # FastAPI 서버 바인딩 IP (0.0.0.0: 모든 인터페이스)
+  port: 18880  # FastAPI 서버 포트
+
 postgres:
   host: 127.0.0.1
   port: 5432
   dbname: postgres
   user: postgres
   password: postgres
+
 video:
-  source: D:/videos/105 Incredible Moments Caught on CCTV Camera.mp4
-  camera_id: '007'
+  source: D:/videos/105 Incredible Moments Caught on CCTV Camera.mp4  # 비디오 파일 경로 또는 RTSP URL
+  camera_id: '007'  # 카메라 식별 ID
+
 yolo_model:
-  original_model_name: .\model\yolov8n_gdr.pt
-  updated_model_name: .\model\yolov8n_gdr_20251112_v3.pt
-  use_original_model: false
-  conf_thresh: 0.5
-  allow_classes: all
-  criteria_classes: person
-  last_model_update: '2025-11-12T14:34:51.601116'
+  original_model_name: .\model\yolov8n_gdr.pt  # 원본 베이스라인 모델 (수동 설정)
+  updated_model_name: .\model\yolov8n_gdr_20251112_v3.pt  # 재학습된 최신 모델 (자동 갱신)
+  use_original_model: false  # true: original 사용 / false: updated 사용
+  conf_thresh: 0.5  # 객체 검출 confidence 임계값 (0.0~1.0)
+  allow_classes: all  # 검출 허용 클래스 (all 또는 [0, 2, 3] 형식)
+  criteria_classes: person  # 드리프트 감지 및 성능 평가 기준 클래스
+  last_model_update: '2025-11-12T14:34:51.601116'  # 마지막 모델 업데이트 시각 (자동 기록)
+
 model_update:
-  overall_map_threshold: 0.0
-  criteria_class_map_threshold: 0.01
-  auto_update: true
-  backup_old_model: false
-  config_check_interval: 10.0
-  monitor_train: false
+  overall_map_threshold: 0.0  # 전체 mAP 개선 임계값 (새 모델이 이 값 이상 개선되어야 배포)
+  criteria_class_map_threshold: 0.01  # 기준 클래스 mAP 개선 임계값 (person 클래스 기준)
+  auto_update: true  # 학습 후 자동으로 updated_model_name 갱신 여부
+  backup_old_model: false  # 모델 업데이트 시 이전 모델 백업 여부
+  config_check_interval: 10.0  # config 변경 감지 주기, 최신 yolo 모델 업데이트 여부 확인하는 주기 (초)
+  monitor_train: false  # 학습 시 monitoring_train.py 자동 실행 (실시간 그래프)
+
 drift_detection:
-  drift_check_period: 1 days
-  drift_check_interval_minutes: 60
-  threshold: 0.04
-  cooldown_after_update: 30 minutes
-  training_lock_timeout_hours: 6
-  partition_create_hour: 23
-  partition_create_minute: 0
+  drift_check_period: 1 days  # 드리프트 분석 대상 기간 (예: "7 days", "2 hours")
+  drift_check_interval_minutes: 60  # 드리프트 체크 주기 (분)
+  threshold: 0.04  # 드리프트 임계값 (0.0~1.0, 이 값 초과 시 재학습 트리거)
+  cooldown_after_update: 30 minutes  # 모델 업데이트 후 쿨다운 기간
+  training_lock_timeout_hours: 6  # 학습 lock 타임아웃 (stale lock 제거 기준)
+
+database:
+  partition_create_hour: 23  # DB 파티션 생성 시각 (시)
+  partition_create_minute: 0  # DB 파티션 생성 시각 (분)
+
 preview:
-  roi_jpeg_quality: 80
-  show_preview: 0
+  roi_jpeg_quality: 80  # ROI 이미지 JPEG 압축 품질 (0~100)
+  show_preview: 0  # 비디오 미리보기 창 표시 (0: 비활성화 / 1: 활성화)

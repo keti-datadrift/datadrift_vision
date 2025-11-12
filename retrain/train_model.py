@@ -7,7 +7,7 @@ Key fixes:
 3. Proper model path handling
 4. Backup previous model before training
 """
-USE_PREV_MODEL = True
+USE_PREV_MODEL = False
 import os
 import sys
 from glob import glob
@@ -1149,30 +1149,7 @@ def train_model():
         shutil.copy2(prev_model_path, backup_path)
         logging.info(f"\n✅ Backed up previous model to: {backup_path}")
     
-    # DON'T delete runs directory - we need it for comparison!
-    # Instead, YOLO will create a new numbered subfolder
 
-    # Load appropriate model
-    # Only use previous model if USE_PREV_MODEL is True AND prev_model_path exists
-    use_previous_model_final = USE_PREV_MODEL and prev_model_path is not None and os.path.exists(prev_model_path)
-
-    if use_previous_model_final:
-        logging.info(f"\n🔄 Fine-tuning mode: Loading previous trained model")
-        model = YOLO(prev_model_path)
-        # lr0 = 0.0005  # Low LR for fine-tuning
-        lr0 = 0.002  # Low LR for fine-tuning
-        lrf = 0.01
-        logging.info(f"   Model: {prev_model_path}")
-        logging.info(f"   Learning rate: {lr0}")
-    else:
-        logging.info(f"\n🆕 Fresh training mode: Loading base model")
-        if USE_PREV_MODEL and prev_model_path is None:
-            logging.info(f"   Note: USE_PREV_MODEL=True but no previous model found")
-        model = YOLO(YOLO_MODEL)
-        lr0 = 0.001  # Higher LR for fresh training
-        lrf = 0.01
-        logging.info(f"   Model: {YOLO_MODEL}")
-        logging.info(f"   Learning rate: {lr0}")
     
     logging.info(f"\n[{datetime.now()}] Training started...")
 
@@ -1235,6 +1212,31 @@ def train_model():
         logging.info(f"Training completed!")
         logging.info(f"Best model saved to: {trainer.best}")
         logging.info(f"{'='*60}")
+
+    # DON'T delete runs directory - we need it for comparison!
+    # Instead, YOLO will create a new numbered subfolder
+
+    # Load appropriate model
+    # Only use previous model if USE_PREV_MODEL is True AND prev_model_path exists
+    use_previous_model_final = USE_PREV_MODEL and prev_model_path is not None and os.path.exists(prev_model_path)
+
+    if use_previous_model_final:
+        logging.info(f"\n🔄 Fine-tuning mode: Loading previous trained model")
+        model = YOLO(prev_model_path)
+        # lr0 = 0.0005  # Low LR for fine-tuning
+        lr0 = 0.002  # Low LR for fine-tuning
+        lrf = 0.01
+        logging.info(f"   Model: {prev_model_path}")
+        logging.info(f"   Learning rate: {lr0}")
+    else:
+        logging.info(f"\n🆕 Fresh training mode: Loading base model")
+        if USE_PREV_MODEL and prev_model_path is None:
+            logging.info(f"   Note: USE_PREV_MODEL=True but no previous model found")
+        model = YOLO(YOLO_MODEL)
+        lr0 = 0.01  # Higher LR for fresh training
+        lrf = 0.01
+        logging.info(f"   Model: {YOLO_MODEL}")
+        logging.info(f"   Learning rate: {lr0}")
 
     # Add callbacks to model
     model.add_callback("on_train_start", on_train_start)

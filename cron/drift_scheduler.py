@@ -44,9 +44,12 @@ def main():
 
         # Get drift detection settings from main config
         drift_config = main_config.get('drift_detection', {})
-        partition_hour = drift_config.get('partition_create_hour', 23)
-        partition_minute = drift_config.get('partition_create_minute', 0)
         drift_check_interval = drift_config.get('drift_check_interval_minutes', 60)
+
+        # Get database settings from main config
+        database_config = main_config.get('database', {})
+        partition_hour = database_config.get('partition_create_hour', 23)
+        partition_minute = database_config.get('partition_create_minute', 0)
 
         # scheduling
         scheduler = BackgroundScheduler()
