@@ -18,7 +18,7 @@ video:
 yolo_model:
   original_model_name: .\model\yolov8n_gdr.pt
   updated_model_name: .\model\yolov8n_gdr_20251112_v3.pt
-  use_original_model: true
+  use_original_model: false
   conf_thresh: 0.5
   allow_classes: all
   criteria_classes: person
@@ -29,7 +29,7 @@ model_update:
   auto_update: true
   backup_old_model: false
   config_check_interval: 10.0
-  monitor_train: true
+  monitor_train: false
 drift_detection:
   drift_check_period: 1 days
   drift_check_interval_minutes: 60
