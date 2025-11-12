@@ -17,18 +17,19 @@ video:
   camera_id: '007'
 yolo_model:
   original_model_name: .\model\yolov8n_gdr.pt
-  updated_model_name: .\model\yolov8n_gdr_20251111_v1.pt
-  use_original_model: false
+  updated_model_name: .\model\yolov8n_gdr_20251112_v3.pt
+  use_original_model: true
   conf_thresh: 0.5
   allow_classes: all
   criteria_classes: person
-  last_model_update: '2025-11-11T22:30:36.427612'
+  last_model_update: '2025-11-12T14:34:51.601116'
 model_update:
   overall_map_threshold: 0.0
   criteria_class_map_threshold: 0.01
   auto_update: true
   backup_old_model: false
   config_check_interval: 10.0
+  monitor_train: true
 drift_detection:
   drift_check_period: 1 days
   drift_check_interval_minutes: 60

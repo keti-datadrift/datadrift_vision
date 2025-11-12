@@ -18,6 +18,7 @@ import yaml
 from pathlib import Path
 import time
 import logging
+import subprocess
 
 base_abspath = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),".."))
 sys.path.append(base_abspath)
@@ -90,6 +91,74 @@ def get_active_model_name(config):
 
 # Initialize logging
 logger = setup_logging()
+
+# Global variable to track monitoring process
+monitoring_process = None
+
+def launch_monitoring_process():
+    """
+    Launch monitoring_train.py as a separate process with --fresh flag
+    Returns the subprocess.Popen object or None if failed
+    """
+    global monitoring_process
+
+    try:
+        monitoring_script = Path(__file__).parent / "monitoring_train.py"
+
+        if not monitoring_script.exists():
+            logging.warning(f"Monitoring script not found: {monitoring_script}")
+            return None
+
+        # Launch monitoring process with --fresh flag
+        logging.info(f"📊 Launching real-time training monitor...")
+        logging.info(f"   Script: {monitoring_script}")
+        logging.info(f"   Mode: Fresh (skip existing log data)")
+
+        # Use subprocess.Popen to run in background
+        monitoring_process = subprocess.Popen(
+            [sys.executable, str(monitoring_script), "--fresh"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(Path(__file__).parent.parent)
+        )
+
+        logging.info(f"   Monitor PID: {monitoring_process.pid}")
+        logging.info(f"✅ Training monitor launched successfully")
+
+        return monitoring_process
+
+    except Exception as e:
+        logging.error(f"Failed to launch monitoring process: {e}")
+        return None
+
+def stop_monitoring_process():
+    """
+    Stop the monitoring process if it's running
+    """
+    global monitoring_process
+
+    if monitoring_process is None:
+        return
+
+    try:
+        logging.info(f"\n📊 Stopping training monitor (PID: {monitoring_process.pid})...")
+        monitoring_process.terminate()
+
+        # Wait for graceful termination (max 5 seconds)
+        try:
+            monitoring_process.wait(timeout=5)
+            logging.info(f"✅ Training monitor stopped gracefully")
+        except subprocess.TimeoutExpired:
+            # Force kill if didn't terminate
+            logging.warning(f"   Monitor didn't terminate, force killing...")
+            monitoring_process.kill()
+            monitoring_process.wait()
+            logging.info(f"✅ Training monitor force stopped")
+
+    except Exception as e:
+        logging.error(f"Error stopping monitoring process: {e}")
+    finally:
+        monitoring_process = None
 
 # YOLO80 클래스명 가져오기
 from vision_analysis.class_names_yolo80n import TEXT_LABELS_80
@@ -190,9 +259,56 @@ def get_dataset_version():
 
 def get_previous_model_info():
     """
-    Get information about the previously trained model
+    Get information about the previously trained model based on config settings.
+
+    Behavior:
+    - If use_original_model=True: Returns original_model_name (baseline model)
+    - If use_original_model=False: Returns updated_model_name (retrained model)
+
     Returns: (model_path, class_names) or (None, None) if not found
     """
+    # Load config to check which model is currently active
+    config_path = os.path.join(base_abspath, "config.yaml")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        yolo_config = config.get("yolo_model", {})
+        use_original = yolo_config.get("use_original_model", True)
+        original_model = yolo_config.get("original_model_name")
+        updated_model = yolo_config.get("updated_model_name")
+
+        # Determine which model to use based on config
+        if use_original:
+            model_path = original_model
+            logging.info(f"Config set to use_original_model=True, using baseline: {model_path}")
+        else:
+            model_path = updated_model if updated_model else original_model
+            if updated_model:
+                logging.info(f"Config set to use_original_model=False, using updated model: {model_path}")
+            else:
+                logging.info(f"No updated model found, falling back to original: {model_path}")
+
+        # Convert to absolute path if relative
+        if model_path and not os.path.isabs(model_path):
+            model_path = os.path.join(base_abspath, model_path)
+
+        # Verify model exists
+        if model_path and os.path.exists(model_path):
+            try:
+                prev_model = YOLO(model_path)
+                prev_classes = list(prev_model.names.values()) if hasattr(prev_model, 'names') else None
+                logging.info(f"Found active model: {model_path}")
+                logging.info(f"Active model classes: {prev_classes}")
+                return model_path, prev_classes
+            except Exception as e:
+                logging.error(f"Error loading active model: {e}")
+                return None, None
+        else:
+            logging.warning(f"Active model path not found: {model_path}")
+
+    # Fallback: check runs directory for previous training results
+    logging.info("Config check failed, falling back to runs directory search")
     runs_base_dir = os.path.join(base_abspath, "runs")
 
     if not os.path.exists(runs_base_dir):
@@ -1043,8 +1159,8 @@ def train_model():
     if use_previous_model_final:
         logging.info(f"\n🔄 Fine-tuning mode: Loading previous trained model")
         model = YOLO(prev_model_path)
-        # lr0 = 0.0001  # Low LR for fine-tuning
-        lr0 = 0.001  # Low LR for fine-tuning
+        # lr0 = 0.0005  # Low LR for fine-tuning
+        lr0 = 0.002  # Low LR for fine-tuning
         lrf = 0.01
         logging.info(f"   Model: {prev_model_path}")
         logging.info(f"   Learning rate: {lr0}")
@@ -1059,6 +1175,15 @@ def train_model():
         logging.info(f"   Learning rate: {lr0}")
     
     logging.info(f"\n[{datetime.now()}] Training started...")
+
+    # Check if monitoring is enabled in config
+    monitor_train_enabled = config.get("model_update", {}).get("monitor_train", False)
+
+    # Launch monitoring process if enabled
+    if monitor_train_enabled:
+        launch_monitoring_process()
+        # Give monitor time to initialize
+        time.sleep(2)
 
     # Setup YOLO training callbacks to log epoch progress
     def on_train_epoch_end(trainer):
@@ -1117,92 +1242,97 @@ def train_model():
     model.add_callback("on_train_end", on_train_end)
 
     # 2️⃣ 학습 시작
-    results = model.train(
-        data=yaml_path,            # 데이터셋 경로
-        epochs=150,                  # 학습 반복 횟수
-        batch=16,                    # 배치 크기
-        imgsz=640,                   # 입력 이미지 크기
-        optimizer="SGD",             # 최적화 알고리즘 (SGD)
-        lr0=lr0,                    # 초기 학습률
-        lrf=lrf,                    # 최종 학습률 비율
-        momentum=0.937,              # SGD 모멘텀
-        weight_decay=0.0005,         # 가중치 감쇠 (정규화)
-        patience=20,                 # 조기 종료 patience
-        hsv_h=0.015,                 # 색조 증강
-        hsv_s=0.7,                   # 채도 증강
-        hsv_v=0.4,                   # 명도 증강
-        degrees=0.0,                 # 회전 없음
-        translate=0.1,               # 위치 이동
-        scale=0.5,                   # 확대/축소
-        shear=0.0,                   # 기울이기 없음
-        flipud=0.0,                  # 상하 반전 없음
-        fliplr=0.5,                  # 좌우 반전 확률
-        mosaic=1.0,                  # mosaic 합성
-        mixup=0.1,                   # mixup 비율
-        project=runs_dir,        # 결과 저장 폴더
-        name="retrain", # 세션 이름
-        exist_ok=True,               # 기존 폴더 덮어쓰기 허용
-        pretrained=True,             # 사전학습 가중치 사용
-        verbose=True                 # Enable verbose output
-    )
     # results = model.train(
-    #     # 데이터
-    #     data=yaml_path,  # ⭐ 병합된 데이터 사용
-    #     cache=False,  # Cache images for faster training (first epoch will be slower)
-
-    #     # 기본 파라미터
-    #     epochs=100,
-    #     patience=10,             # 조기 종료
-    #     # epochs=5,
-    #     # patience=3,             # 조기 종료
-    #     imgsz=640,
-    #     batch=16,
-        
-    #     # 학습률 (기존 지식 보존용 낮은 LR)
-    #     lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
-    #     lrf=lrf,
-    #     optimizer='AdamW',
-    #     warmup_epochs=3,
-    #     warmup_momentum=0.8,
-        
-    #     # 정규화 (과적합 방지)
-    #     weight_decay=0.0005,
-    #     dropout=0.0,
-        
-    #     # 레이어 동결 (선택적)
-    #     freeze=10,               # 백본 일부 동결로 재앙적 망각 방지
-        
-    #     # 데이터 증강
-    #     hsv_h=0.015,
-    #     hsv_s=0.7,
-    #     hsv_v=0.4,
-    #     degrees=10,
-    #     translate=0.1,
-    #     scale=0.5,
-    #     shear=0.0,
-    #     perspective=0.0,
-    #     flipud=0.0,
-    #     fliplr=0.5,
-    #     mosaic=1.0,              # 모자이크 증강
-    #     mixup=0.1,               # 믹스업
-    #     copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
-        
-    #     # 저장 및 로깅
-    #     save=True,
-    #     save_period=10,
-    #     plots=True,
-        
-    #     # 하드웨어
-    #     device=0,
-    #     workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
-
-    #     # 프로젝트
-    #     # project='runs/train',
-    #     project=runs_dir,
-    #     name='retrain'
+    #     data=yaml_path,            # 데이터셋 경로
+    #     epochs=150,                  # 학습 반복 횟수
+    #     batch=16,                    # 배치 크기
+    #     imgsz=640,                   # 입력 이미지 크기
+    #     optimizer="SGD",             # 최적화 알고리즘 (SGD)
+    #     lr0=lr0,                    # 초기 학습률
+    #     lrf=lrf,                    # 최종 학습률 비율
+    #     momentum=0.937,              # SGD 모멘텀
+    #     weight_decay=0.0005,         # 가중치 감쇠 (정규화)
+    #     patience=20,                 # 조기 종료 patience
+    #     freeze=0,
+    #     hsv_h=0.015,                 # 색조 증강
+    #     hsv_s=0.7,                   # 채도 증강
+    #     hsv_v=0.4,                   # 명도 증강
+    #     degrees=0.0,                 # 회전 없음
+    #     translate=0.1,               # 위치 이동
+    #     scale=0.5,                   # 확대/축소
+    #     shear=0.0,                   # 기울이기 없음
+    #     flipud=0.0,                  # 상하 반전 없음
+    #     fliplr=0.5,                  # 좌우 반전 확률
+    #     mosaic=1.0,                  # mosaic 합성
+    #     mixup=0.1,                   # mixup 비율
+    #     project=runs_dir,        # 결과 저장 폴더
+    #     name="retrain", # 세션 이름
+    #     exist_ok=True,               # 기존 폴더 덮어쓰기 허용
+    #     pretrained=True,             # 사전학습 가중치 사용
+    #     verbose=True                 # Enable verbose output
     # )
+    results = model.train(
+        # 데이터
+        data=yaml_path,  # ⭐ 병합된 데이터 사용
+        cache=False,  # Cache images for faster training (first epoch will be slower)
+
+        # 기본 파라미터
+        epochs=200,
+        patience=30,             # 조기 종료
+        # epochs=5,
+        # patience=3,             # 조기 종료
+        imgsz=640,
+        batch=16,
+        
+        # 학습률 (기존 지식 보존용 낮은 LR)
+        lr0=lr0,              # ⭐ 신규만 쓸 때보다 낮춤
+        lrf=lrf,
+        optimizer='AdamW',
+        warmup_epochs=3,
+        warmup_momentum=0.8,
+        
+        # 정규화 (과적합 방지)
+        weight_decay=0.0005,
+        dropout=0.0,
+        
+        # 레이어 동결 (선택적)
+        freeze=0,               # 백본 일부 동결로 재앙적 망각 방지
+        
+        # 데이터 증강
+        hsv_h=0.015,
+        hsv_s=0.7,
+        hsv_v=0.4,
+        degrees=10,
+        translate=0.1,
+        scale=0.5,
+        shear=0.0,
+        perspective=0.0,
+        flipud=0.0,
+        fliplr=0.5,
+        mosaic=1.0,              # 모자이크 증강
+        mixup=0.1,               # 믹스업
+        copy_paste=0.1,          # 복사-붙여넣기 (신규 객체에 효과적)
+        
+        # 저장 및 로깅
+        save=True,
+        save_period=10,
+        plots=True,
+        
+        # 하드웨어
+        device=0,
+        workers=0,  # Set to 0 to avoid BufferError on Windows (single-process data loading)
+
+        # 프로젝트
+        # project='runs/train',
+        project=runs_dir,
+        name='retrain'
+    )
     logging.info(f"\n[{datetime.now()}] Training completed!")
     logging.info(f"Results saved to: {results.save_dir}")
+
+    # Stop monitoring process if it was launched
+    if monitor_train_enabled:
+        stop_monitoring_process()
 
 
 def evaluate_model(model_path, test_data_yaml=None, test_images_dir=None):
@@ -2027,6 +2157,9 @@ def main():
         logging.error("[ERROR] Model retraining failed!")
         logging.error(traceback.format_exc())
     finally:
+        # Stop monitoring process if it's still running
+        stop_monitoring_process()
+
         # Always remove lock file when training completes or fails
         try:
             if lock_file.exists():
