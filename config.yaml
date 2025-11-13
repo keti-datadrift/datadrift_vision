@@ -22,12 +22,12 @@ video:
   camera_id: '007'
 yolo_model:
   original_model_name: .\model\yolov8n_gdr.pt
-  updated_model_name: .\model\yolov8n_gdr_20251113_v1.pt
+  updated_model_name: .\model\yolov8n_gdr_20251113_v2.pt
   use_original_model: false
   conf_thresh: 0.5
   allow_classes: all
   criteria_classes: person
-  last_model_update: '2025-11-13T06:42:46.159751'
+  last_model_update: '2025-11-13T17:10:26.255968'
 model_update:
   overall_map_threshold: 0.0
   criteria_class_map_threshold: 0.01
@@ -35,13 +35,12 @@ model_update:
   backup_old_model: false
   config_check_interval: 10.0
   monitor_train: false
-
 training:
-  use_previous_model_finetune: true  # true: 이전 모델에서 파인튜닝 / false: 베이스 모델에서 새로 학습
-  finetune_lr0: 0.001  # Fine-tuning 시작 learning rate
-  finetune_lrf: 0.01   # Fine-tuning 최종 learning rate 비율
-  fresh_lr0: 0.002     # Fresh training 시작 learning rate
-  fresh_lrf: 0.05      # Fresh training 최종 learning rate 비율
+  use_previous_model_finetune: true
+  finetune_lr0: 0.001
+  finetune_lrf: 0.01
+  fresh_lr0: 0.002
+  fresh_lrf: 0.05
 drift_detection:
   drift_check_period: 1 days
   drift_check_interval_minutes: 60
