@@ -2,7 +2,9 @@ datadrift_table: datadrift_db
 datasets:
   base_path: ../datasets
   objdet_save_data: true
-  use_last_merged_data_4train: true
+  use_last_merged_data_4train: false
+  new_ratio: 1
+  old_ratio: 0
 server:
   ip: 0.0.0.0
   port: 18880
@@ -33,10 +35,17 @@ model_update:
   backup_old_model: false
   config_check_interval: 10.0
   monitor_train: false
+
+training:
+  use_previous_model_finetune: true  # true: 이전 모델에서 파인튜닝 / false: 베이스 모델에서 새로 학습
+  finetune_lr0: 0.001  # Fine-tuning 시작 learning rate
+  finetune_lrf: 0.01   # Fine-tuning 최종 learning rate 비율
+  fresh_lr0: 0.002     # Fresh training 시작 learning rate
+  fresh_lrf: 0.05      # Fresh training 최종 learning rate 비율
 drift_detection:
   drift_check_period: 1 days
   drift_check_interval_minutes: 60
-  threshold: 0.04
+  drift_threshold: 0.01
   cooldown_after_update: 30 minutes
   training_lock_timeout_hours: 6
 preview:

@@ -7,7 +7,6 @@ Key fixes:
 3. Proper model path handling
 4. Backup previous model before training
 """
-USE_PREV_MODEL = True
 import os
 import sys
 from glob import glob
@@ -668,7 +667,7 @@ def clean_merged_data_directory(output_dir):
 
 
 def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="datasets/merged_data",
-                         new_ratio=1, old_ratio=3, random_seed=42, use_latest_merged_to_make_new_dataset=False):
+                         new_ratio=1, old_ratio=0, random_seed=42, use_latest_merged_to_make_new_dataset=False):
     """
     새로 생성된 데이터셋과 기존 데이터셋(COCO 또는 이전 merged)을 new:old 비율로 병합
 
@@ -982,6 +981,8 @@ def train_model():
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         use_last_merged_data_4train = config.get("datasets", {}).get("use_last_merged_data_4train", False)
+        new_ratio = config.get("datasets",{}).get("new_ratio",1)
+        old_ratio = config.get("datasets",{}).get("old_ratio",0)
     else:
         use_last_merged_data_4train = False
 
@@ -1014,8 +1015,8 @@ def train_model():
             new_data_yaml_path=os.path.join(DATASETS_BASE_PATH, "splitted", "data.yaml"),
             coco_yaml_path=os.path.join(DATASETS_BASE_PATH, "cocox", "coco.yaml"),  # Fallback
             output_dir=os.path.join(DATASETS_BASE_PATH, "merged_data"),
-            new_ratio=1,
-            old_ratio=3,
+            new_ratio=new_ratio,
+            old_ratio=old_ratio,
             random_seed=42,
             use_latest_merged_to_make_new_dataset=False  # Read from config
         )
@@ -1104,25 +1105,25 @@ def train_model():
     
     # Determine if this is fine-tuning or fresh training
     drift_detected = False
-    use_previous_model = False
+    use_previous_model_finetune = False
     
     if prev_model_path and prev_classes:
         # Check class consistency
         if prev_classes == class_names_list:
             logging.info("\n✅ Class names MATCH - Can safely fine-tune from previous model")
             drift_detected = True
-            use_previous_model = True
+            use_previous_model_finetune = True
         else:
             logging.info("\n⚠️  WARNING: Class mismatch detected!")
             logging.info(f"   Previous classes: {prev_classes}")
             logging.info(f"   New classes: {class_names_list}")
             logging.info("   Will train from BASE model (not fine-tuning)")
             drift_detected = False
-            use_previous_model = False
+            use_previous_model_finetune = False
     else:
         logging.info("\n📝 No previous model found - Training from base model")
         drift_detected = False
-        use_previous_model = False
+        use_previous_model_finetune = False
     
     # # Create data.yaml
     # data_yaml = {
@@ -1144,7 +1145,7 @@ def train_model():
     runs_dir = os.path.join(base_abspath, "runs")
     
     # Backup previous model if exists
-    if use_previous_model and prev_model_path:
+    if use_previous_model_finetune and prev_model_path:
         backup_path = os.path.join(base_abspath, "backup_best_model.pt")
         shutil.copy2(prev_model_path, backup_path)
         logging.info(f"\n✅ Backed up previous model to: {backup_path}")
@@ -1216,30 +1217,30 @@ def train_model():
     # DON'T delete runs directory - we need it for comparison!
     # Instead, YOLO will create a new numbered subfolder
 
+    # Load training configuration
+    training_config = config.get('training', {})
+    use_previous_model_finetune = training_config.get('use_previous_model_finetune', True)
+
     # Load appropriate model
-    # Only use previous model if USE_PREV_MODEL is True AND prev_model_path exists
-    use_previous_model_final = USE_PREV_MODEL and prev_model_path is not None and os.path.exists(prev_model_path)
+    # Only use previous model if config allows AND prev_model_path exists
+    use_previous_model_final = use_previous_model_finetune and prev_model_path is not None and os.path.exists(prev_model_path)
 
     if use_previous_model_final:
         logging.info(f"\n🔄 Fine-tuning mode: Loading previous trained model")
         model = YOLO(prev_model_path)
-        # lr0 = 0.0005  # Low LR for fine-tuning
-        # lr0 = 0.002  # Low LR for fine-tuning
-        lr0 = 0.001  # Low LR for fine-tuning
-        lrf = 0.01
+        lr0 = training_config.get('finetune_lr0', 0.001)  # Low LR for fine-tuning
+        lrf = training_config.get('finetune_lrf', 0.01)
         logging.info(f"   Model: {prev_model_path}")
-        logging.info(f"   Learning rate: {lr0}")
+        logging.info(f"   Learning rate: lr0={lr0}, lrf={lrf}")
     else:
         logging.info(f"\n🆕 Fresh training mode: Loading base model")
-        if USE_PREV_MODEL and prev_model_path is None:
-            logging.info(f"   Note: USE_PREV_MODEL=True but no previous model found")
+        if use_previous_model_finetune and prev_model_path is None:
+            logging.info(f"   Note: use_previous_model_finetune=True but no previous model found")
         model = YOLO(YOLO_MODEL)
-        # lr0 = 0.001  # Higher LR for fresh training
-        # lrf = 0.01
-        lr0 = 0.002  # Higher LR for fresh training
-        lrf = 0.05
+        lr0 = training_config.get('fresh_lr0', 0.002)  # Higher LR for fresh training
+        lrf = training_config.get('fresh_lrf', 0.05)
         logging.info(f"   Model: {YOLO_MODEL}")
-        logging.info(f"   Learning rate: {lr0}")
+        logging.info(f"   Learning rate: lr0={lr0}, lrf={lrf}")
 
     # Add callbacks to model
     model.add_callback("on_train_start", on_train_start)

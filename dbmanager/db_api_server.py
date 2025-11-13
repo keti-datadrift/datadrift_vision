@@ -363,9 +363,10 @@ async def db_check_drift(
         total_count = result[1] if result[1] is not None else 0
 
         if total_count == 0:
+            logging.info(f"조회 기간 동안 데이터가 없습니다.yolo를 실행하여 DB에 당일 데이터가 기록되어야 합니다.")
             return {
                 "status": "no_data",
-                "message": "조회 기간 동안 데이터가 없습니다.",
+                "message": "조회 기간 동안 데이터가 없습니다.yolo를 실행하여 DB에 당일 데이터가 기록되어야 합니다.",
                 "class_name": class_name,
                 "period": drift_check_period
             }

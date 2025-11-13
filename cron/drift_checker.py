@@ -122,7 +122,7 @@ def main():
         params = {
             "period": drift_detection.get("drift_check_period", "1 day"),
             "class_name": yolo_model.get("criteria_classes", "person"),  # Use criteria_classes from yolo_model
-            "threshold": drift_detection.get("threshold", 0.08)
+            "threshold": drift_detection.get("drift_threshold", 0.01)
         }
 
         logging.info(f"Drift detection parameters: {params}")
