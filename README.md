@@ -199,12 +199,14 @@ training:
 
 ## API 엔드포인트
 
-### FastAPI 서버 (`yolo_producer_fastapi.py`)
+### FastAPI 서버 (`vision_analysisyolo_producer_fastapi.py`)
 
 - `GET /`: 실시간 비디오 스트리밍 (MJPEG)
+
+### FastAPI 서버 (`dbmanager/db_api_server.py.py`)
 - `POST /api/db_check_drift/`: 드리프트 체크 트리거
-- `GET /api/config_reload/`: 설정 파일 리로드
-- `GET /health`: 헬스체크
+- `GET /api/config_reload/`: 설정 파일 리로드 (미완성)
+- `GET /health`: 헬스체크 (미완성)
 
 ### 사용 예시
 
