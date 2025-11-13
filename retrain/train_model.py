@@ -7,7 +7,7 @@ Key fixes:
 3. Proper model path handling
 4. Backup previous model before training
 """
-USE_PREV_MODEL = False
+USE_PREV_MODEL = True
 import os
 import sys
 from glob import glob
@@ -1224,7 +1224,8 @@ def train_model():
         logging.info(f"\n🔄 Fine-tuning mode: Loading previous trained model")
         model = YOLO(prev_model_path)
         # lr0 = 0.0005  # Low LR for fine-tuning
-        lr0 = 0.002  # Low LR for fine-tuning
+        # lr0 = 0.002  # Low LR for fine-tuning
+        lr0 = 0.001  # Low LR for fine-tuning
         lrf = 0.01
         logging.info(f"   Model: {prev_model_path}")
         logging.info(f"   Learning rate: {lr0}")
@@ -1233,8 +1234,10 @@ def train_model():
         if USE_PREV_MODEL and prev_model_path is None:
             logging.info(f"   Note: USE_PREV_MODEL=True but no previous model found")
         model = YOLO(YOLO_MODEL)
-        lr0 = 0.01  # Higher LR for fresh training
-        lrf = 0.01
+        # lr0 = 0.001  # Higher LR for fresh training
+        # lrf = 0.01
+        lr0 = 0.002  # Higher LR for fresh training
+        lrf = 0.05
         logging.info(f"   Model: {YOLO_MODEL}")
         logging.info(f"   Learning rate: {lr0}")
 
