@@ -125,8 +125,8 @@ yolo_model:
 ### 1. YOLO 검출 서버 실행
 
 ```bash
-cd vision_analysis
-python yolo_producer_fastapi.py
+cd datadrift_vision
+python vision_analysis/yolo_producer_fastapi.py
 ```
 
 서버는 `http://0.0.0.0:18880`에서 실행됩니다.
@@ -134,25 +134,22 @@ python yolo_producer_fastapi.py
 ### 2. 드리프트 스케줄러 실행
 
 ```bash
-cd cron
-python drift_scheduler.py
+cd datadrift_vision
+python cron/drift_scheduler.py
 ```
 
 설정된 주기마다 자동으로 드리프트를 감지하고 필요시 재학습을 트리거합니다.
 
-### 3. 수동 모델 재학습
+### 3. 수동 모델 재학습 및 자동평가
 
 ```bash
-cd retrain
-python train_model.py
+cd datadrift_vision
+python retrain/train_model.py
 ```
 
-### 4. 모델 성능 평가
+### 4. 모델 성능 수종 평가(없음)
 
-```bash
-cd retrain
-python evaluate_model.py
-```
+
 
 ## 주요 설정 항목
 
