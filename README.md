@@ -148,7 +148,7 @@ python vision_analysis/yolo_producer_fastapi.py
 cd datadrift_vision
 python dbmanager/db_api_server.py
 ```
-요청될때마다 드리프트 발생여부 확인, 및 필요 시 재합습 실행합니다.
+요청될때마다 드리프트 발생여부 확인, 및 드리프트 발생 시 재합습 실행합니다.
 
 ### 4. 수동 모델 재학습 및 자동평가
 
