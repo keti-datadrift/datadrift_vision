@@ -142,7 +142,7 @@ python vision_analysis/yolo_producer_fastapi.py
 
 서버는 `http://0.0.0.0:18880`에서 실행됩니다.
 
-### 3. 수동 모델 재학습 및 자동평가
+### 3. 자동 드리프 자동 감지, 모델 재학습 및 자동평가
 
 ```bash
 cd datadrift_vision
