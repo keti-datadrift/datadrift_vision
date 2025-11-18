@@ -331,7 +331,7 @@ drift_detection:
 
 ## 설정 마이그레이션
 
-시스템 업데이트 시 설정 변경사항은 [CONFIG_MIGRATION.md](CONFIG_MIGRATION.md)를 참조하세요.
+<!-- 시스템 업데이트 시 설정 변경사항은 [CONFIG_MIGRATION.md](CONFIG_MIGRATION.md)를 참조하세요. -->
 
 주요 변경 이력:
 - 2025-11-13: 학습 설정 통합 및 중복 제거
@@ -344,7 +344,7 @@ drift_detection:
 
 - **CPU**: Intel Core i7 이상 또는 AMD Ryzen 7 이상
 - **RAM**: 16GB 이상
-- **GPU**: NVIDIA RTX 3060 이상 (VRAM 6GB+)
+- **GPU**: NVIDIA RTX 4060 이상 (VRAM 8GB+)
 - **Storage**: SSD 100GB 이상
 
 ### 최적화 팁
