@@ -20,3 +20,11 @@ pip install ultralytics
 pip install redis
 
 
+------
+# Windows PowerShell
+pip install transformers accelerate timm omegaconf einops
+pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu126
+출처: https://marcus-story.tistory.com/226 [Marcus' Stroy:티스토리]
+
+
+
