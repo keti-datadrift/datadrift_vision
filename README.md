@@ -235,23 +235,18 @@ curl http://localhost:18880/health
 ### datadrift_db 테이블
 
 ```sql
-CREATE TABLE datadrift_db (
-    id SERIAL PRIMARY KEY,
-    detection_id VARCHAR(255),
-    camera_id VARCHAR(50),
-    timestamp TIMESTAMP,
-    class_name VARCHAR(50),
-    confidence FLOAT,
-    bbox_x1 INT,
-    bbox_y1 INT,
-    bbox_x2 INT,
-    bbox_y2 INT,
-    roi_image_path TEXT,
-    is_valid BOOLEAN,
-    validation_method VARCHAR(50),
-    validation_timestamp TIMESTAMP,
-    false_reason TEXT
-);
+    CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+        id           BIGSERIAL,
+        frame_id     TEXT,                           -- response['frame_id']
+        camera_name  VARCHAR(32) NOT NULL,           -- response['camera_id']
+        class_name   VARCHAR(30),                    -- response['class']
+        event_time   TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+        confidence   REAL,                           -- response['confidence']
+        vlm_valid    VARCHAR(20),                    -- response['vlm_valid'] (검증 결과)
+
+        created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id, created_at)
+    ) PARTITION BY RANGE (created_at);
 ```
 
 테이블은 자동으로 일별 파티션이 생성됩니다.
