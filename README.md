@@ -391,7 +391,7 @@ CREATE INDEX idx_camera_id ON datadrift_db(camera_id);
 
 ## 참고 자료
 
-- [THRESHOLDS_EXPLAINED.md](THRESHOLDS_EXPLAINED.md) - Threshold 파라미터 상세 설명
-- [CONFIG_MIGRATION.md](CONFIG_MIGRATION.md) - 설정 변경 이력 및 마이그레이션 가이드
+<!-- - [THRESHOLDS_EXPLAINED.md](THRESHOLDS_EXPLAINED.md) - Threshold 파라미터 상세 설명 -->
+<!-- - [CONFIG_MIGRATION.md](CONFIG_MIGRATION.md) - 설정 변경 이력 및 마이그레이션 가이드 -->
 - [YOLOv8 Documentation](https://docs.ultralytics.com/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
