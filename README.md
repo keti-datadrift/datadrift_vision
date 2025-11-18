@@ -122,7 +122,18 @@ yolo_model:
 
 ## 사용 방법
 
-### 1. YOLO 검출 서버 실행
+
+
+### 1. 드리프트 스케줄러 실행
+
+```bash
+cd datadrift_vision
+python cron/drift_scheduler.py
+```
+
+설정된 주기마다 자동으로 드리프트를 감지를 요청하고 필요시 재학습을 트리거합니다.
+
+### 2. YOLO 검출 서버 실행
 
 ```bash
 cd datadrift_vision
@@ -131,23 +142,21 @@ python vision_analysis/yolo_producer_fastapi.py
 
 서버는 `http://0.0.0.0:18880`에서 실행됩니다.
 
-### 2. 드리프트 스케줄러 실행
+### 3. 수동 모델 재학습 및 자동평가
 
 ```bash
 cd datadrift_vision
-python cron/drift_scheduler.py
+python dbmanager/db_api_server.py
 ```
+요청될때마다 드리프트 발생여부 확인, 및 필요 시 재합습 실행합니다.
 
-설정된 주기마다 자동으로 드리프트를 감지하고 필요시 재학습을 트리거합니다.
-
-### 3. 수동 모델 재학습 및 자동평가
+### 4. 수동 모델 재학습 및 자동평가
 
 ```bash
 cd datadrift_vision
 python retrain/train_model.py
 ```
 
-### 4. 모델 성능 수종 평가(없음)
 
 
 
@@ -199,9 +208,9 @@ training:
 
 ## API 엔드포인트
 
-### FastAPI 서버 (`vision_analysisyolo_producer_fastapi.py`)
+### FastAPI 서버 (`vision_analysis/yolo_producer_fastapi.py`)
 
-- `GET /`: 실시간 비디오 스트리밍 (MJPEG)
+- 실시간 비디오 스트리밍
 
 ### FastAPI 서버 (`dbmanager/db_api_server.py.py`)
 - `POST /api/db_check_drift/`: 드리프트 체크 트리거
@@ -311,28 +320,6 @@ model_update:
 drift_detection:
   drift_threshold: 0.15  # 임계값 상향 (기본: 0.01)
   drift_check_interval_minutes: 180  # 체크 주기 증가 (기본: 60)
-```
-
-#### 3. GPU 메모리 부족
-
-**증상**: CUDA out of memory 에러
-
-**해결책**:
-- 배치 크기 감소
-- 모델 크기 축소 (yolov8n → yolov8s)
-- 이미지 해상도 감소
-
-#### 4. 데이터베이스 연결 실패
-
-**증상**: "connection refused" 또는 "authentication failed"
-
-**해결책**:
-```yaml
-postgres:
-  host: 127.0.0.1  # localhost 대신 IP 사용
-  port: 5432
-  user: postgres
-  password: correct_password  # 비밀번호 확인
 ```
 
 ### 로그 분석
