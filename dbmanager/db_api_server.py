@@ -582,5 +582,6 @@ async def db_retrain():
 
 if __name__ == "__main__":
     # uvicorn.run(app, host="127.0.0.1", port=8000)
-    uvicorn.run(app, host="localhost", port=8000)
+    # access_log=False로 설정하여 Socket.IO 404 오류 로그 숨김
+    uvicorn.run(app, host="localhost", port=8000, access_log=False)
 

@@ -363,7 +363,7 @@ training:
   batch_size: 16  # GPU 메모리에 맞게 조정
 ```
 
-3. **데이터베이스 인덱스 추가**
+<!-- 3. **데이터베이스 인덱스 추가** -->
 <!-- ```sql
 CREATE INDEX idx_timestamp ON datadrift_db(timestamp);
 CREATE INDEX idx_camera_id ON datadrift_db(camera_id);
