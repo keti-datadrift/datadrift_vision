@@ -1,0 +1,73 @@
+# 데이터 드리프트 테이블 이름
+datadrift_table: datadrift_db
+
+# 학습 데이터셋 관리
+datasets:
+  base_path: ../datasets  # 데이터셋 저장 경로
+  objdet_save_data: true  # 검출 결과를 학습 데이터로 저장 여부
+  use_last_merged_data_4train: false  # 마지막 병합 데이터만 사용 여부
+  new_ratio: 1  # 새 데이터 비율
+  old_ratio: 0  # 기존 데이터 비율: coco 또는 예전에 생성된 데이터
+
+# FastAPI 서버 설정
+server:
+  ip: 0.0.0.0  # 서버 IP (모든 인터페이스)
+  port: 18880  # 서버 포트
+
+# PostgreSQL 데이터베이스 연결 정보
+postgres:
+  host: 127.0.0.1
+  port: 5432
+  dbname: postgres
+  user: postgres
+  password: postgres
+
+# 데이터베이스 관리 설정
+database:
+  partition_create_hour: 23  # 일별 파티션 생성 시각 (시)
+  partition_create_minute: 0  # 일별 파티션 생성 시각 (분)
+
+# 비디오 소스 설정
+video:
+  source: D:/videos/105 Incredible Moments Caught on CCTV Camera.mp4  # 비디오 파일 경로 또는 카메라 ID
+  camera_id: '007'  # 카메라 식별자
+
+# YOLO 모델 설정
+yolo_model:
+  original_model_name: .\model\yolov8n_gdr.pt  # 원본(베이스) 모델 경로
+  updated_model_name: .\model\yolov8n_gdr_20251113_v2.pt  # 재학습된 모델 경로 (자동 업데이트됨)
+  use_original_model: false  # true: 원본 모델 사용, false detection 많이 발생하여 드리프트 검출 시연 시 필요, false: 최신 모델 사용, 이 경우 드리프트 발생율이 낮아서 드리프트 시연할 때 불편할 수 있음. 또는 완전히 다른 동영상을 적용해야 할 수 있음
+  conf_thresh: 0.5  # 객체 검출 confidence 임계값 (0.0~1.0)
+  allow_classes: all  # 검출 허용 클래스 (all 또는 클래스 목록, 예: person,vehicle 등)
+  criteria_classes: person  # 드리프트 감지 기준 클래스
+  last_model_update: '2025-11-13T17:10:26.255968'  # 마지막 모델 업데이트 시각 (자동 기록)
+
+# 모델 업데이트 및 배포 설정
+model_update:
+  overall_map_threshold: 0.0  # 전체 mAP 향상도 최소 요구값 (음수: 저하 허용, 0: 유지, 양수: 향상 필수)
+  criteria_class_map_threshold: 0.01  # 핵심 클래스 mAP 향상도 최소 요구값 (1% 향상 필요)
+  auto_use_updated_model: true  # 재학습 성공 시 자동으로 새 모델로 전환 여부
+  backup_old_model: false  # 모델 업데이트 시 기존 모델 백업 여부
+  config_check_interval: 10.0  # 설정 파일 변경 체크 주기 (초)
+  monitor_train: false  # 학습 과정 실시간 모니터링 (콘솔 출력)
+
+# 학습 파라미터 설정
+training:
+  use_previous_model_finetune: true  # true: 이전 모델에서 파인튜닝, false: 베이스 모델에서 처음부터 학습
+  finetune_lr0: 0.001  # 파인튜닝 시작 learning rate (낮은 값으로 미세 조정)
+  finetune_lrf: 0.01  # 파인튜닝 최종 learning rate 비율
+  fresh_lr0: 0.002  # Fresh 학습 시작 learning rate (높은 값으로 빠른 학습)
+  fresh_lrf: 0.05  # Fresh 학습 최종 learning rate 비율
+
+# 드리프트 감지 설정
+drift_detection:
+  drift_check_period: 1 days  # 드리프트 분석 대상 기간 (예: 1 days, 6 hours)
+  drift_check_interval_minutes: 60  # 드리프트 체크 주기 (분)
+  drift_threshold: 0.01  # 드리프트 감지 임계값 (false_ratio >= 이 값이면 드리프트)
+  cooldown_after_update: 30 minutes  # 모델 업데이트 후 쿨다운 기간 (재학습 방지)
+  training_lock_timeout_hours: 6  # 학습 lock 타임아웃 (시간, 학습 중 중복 실행 방지)
+
+# 미리보기 설정
+preview:
+  roi_jpeg_quality: 80  # ROI 이미지 저장 JPEG 품질 (0~100)
+  show_preview: 0  # 미리보기 표시 여부 (0: 비활성, 1: 활성)
