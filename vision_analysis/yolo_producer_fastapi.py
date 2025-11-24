@@ -522,6 +522,10 @@ def main():
                             logging.error(f"HTTP {resp.status_code}: {resp.text}")
                     except requests.exceptions.RequestException as e:
                         logging.error(f"HTTP ERROR: {e}")
+                        logging.error(f"  → VLM 서버 연결 실패. 다음 사항을 확인하세요:")
+                        logging.error(f"     1. VLM 서버가 실행 중인지 확인: curl {VLM_URL.replace('/inference', '/health')}")
+                        logging.error(f"     2. VLM 서버 재시작: python kananavlm_verifier_fastapi.py")
+                        logging.error(f"     3. GPU 메모리 확인: nvidia-smi")
                     # 저장 경로 결정
             save_dir = os.path.join(DATASETS_BASE_PATH, "collected" ,"good_images" if False==false_class_detected else "wronged_images")
 

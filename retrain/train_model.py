@@ -676,7 +676,7 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
         coco_yaml_path: COCO data.yaml 경로 (첫 실행 시)
         output_dir: 병합된 데이터셋 출력 디렉토리
         new_ratio: 새 데이터 비율 (기본값: 1)
-        old_ratio: 기존 데이터 비율 (기본값: 3)
+        old_ratio: 기존 데이터 비율 (기본값: 0)
         random_seed: 랜덤 시드
         use_latest_merged: True면 최신 merged dataset 사용, False면 coco_yaml_path 사용
 
@@ -685,14 +685,23 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
     """
     import random
 
+    # old_ratio가 0이면 cocox를 읽지 않고 splitted 데이터만 사용
+    skip_coco = (old_ratio == 0)
 
+    if skip_coco:
+        clean_merged_data_directory(output_dir)
+        logging.info(f"\n{'='*60}")
+        logging.info(f"old_ratio=0: Using ONLY NEW dataset (skipping COCO)")
+        logging.info(f"Source: {new_data_yaml_path}")
+        logging.info(f"{'='*60}\n")
+        base_type = "none"
+        coco_data = None
     # Determine which base dataset to use - ALWAYS USE COCO, NOT PREVIOUS MERGED
-    base_type = "coco"
-    if use_latest_merged_to_make_new_dataset: # 최신 merged dadaset 생성을 위하여 예전의 merged dataset을 적용하기 위함
+    elif use_latest_merged_to_make_new_dataset: # 최신 merged dadaset 생성을 위하여 예전의 merged dataset을 적용하기 위함
+        base_type = "previous_merged"
         latest_merged, _ = get_latest_merged_dataset()
         if latest_merged:
             coco_yaml_path = latest_merged
-            base_type = "previous_merged"
             logging.info(f"\n{'='*60}")
             logging.info(f"Merging NEW dataset with LATEST MERGED dataset")
             logging.info(f"Base dataset: {Path(coco_yaml_path).name}")
@@ -710,6 +719,7 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
             logging.info(f"Ratio - New:Old = {new_ratio}:{old_ratio}")
             logging.info(f"{'='*60}\n")
     else:
+        base_type = "coco"
         clean_merged_data_directory(output_dir)
         if not coco_yaml_path:
             logging.info("Error: coco_yaml_path must be provided when use_latest_merged=False")
@@ -723,8 +733,10 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
     with open(new_data_yaml_path, 'r', encoding='utf-8') as f:
         new_data = yaml.safe_load(f)
 
-    with open(coco_yaml_path, 'r', encoding='utf-8') as f:
-        coco_data = yaml.safe_load(f)
+    # old_ratio > 0인 경우에만 coco_data 로드
+    if not skip_coco:
+        with open(coco_yaml_path, 'r', encoding='utf-8') as f:
+            coco_data = yaml.safe_load(f)
 
     # Create output directory structure
     # output_dir is now expected to be an absolute path
@@ -744,11 +756,6 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
         new_images_dir = new_base_path / new_data[split]
         new_labels_dir = new_base_path / new_data[split].replace('images', 'labels')
 
-        # COCO paths (adjust based on your COCO dataset structure)
-        coco_base_path = Path(coco_data['path'])
-        if not coco_base_path.is_absolute():
-            coco_base_path = Path(DATASETS_BASE_PATH) / coco_data['path']
-
         # Collect image-label pairs from NEW dataset
         new_pairs = []
         if new_images_dir.exists():
@@ -763,60 +770,74 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
 
         logging.info(f"  NEW dataset: {len(new_pairs)} samples")
 
-        # Collect image-label pairs from COCO dataset
+        # old_ratio가 0이면 COCO 데이터를 읽지 않음
         coco_pairs = []
-        coco_split_entry = coco_data.get(split)
+        if not skip_coco:
+            # COCO paths (adjust based on your COCO dataset structure)
+            coco_base_path = Path(coco_data['path'])
+            if not coco_base_path.is_absolute():
+                coco_base_path = Path(DATASETS_BASE_PATH) / coco_data['path']
 
-        if coco_split_entry:
-            # Check if it's a text file containing image paths (COCO format)
-            if coco_split_entry.endswith('.txt'):
-                txt_file_path = coco_base_path / coco_split_entry
-                if txt_file_path.exists():
-                    logging.info(f"  Reading COCO image paths from: {txt_file_path}")
-                    try:
-                        with open(txt_file_path, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                line = line.strip()
-                                if not line:
-                                    continue
+            # Collect image-label pairs from COCO dataset
+            coco_split_entry = coco_data.get(split)
 
-                                # Image path (relative to coco_base_path)
-                                img_path = coco_base_path / line.lstrip('./')
+            if coco_split_entry:
+                # Check if it's a text file containing image paths (COCO format)
+                if coco_split_entry.endswith('.txt'):
+                    txt_file_path = coco_base_path / coco_split_entry
+                    if txt_file_path.exists():
+                        logging.info(f"  Reading COCO image paths from: {txt_file_path}")
+                        try:
+                            with open(txt_file_path, 'r', encoding='utf-8') as f:
+                                for line in f:
+                                    line = line.strip()
+                                    if not line:
+                                        continue
 
-                                if img_path.exists():
-                                    # Derive label path by replacing 'images' with 'labels' and extension with '.txt'
-                                    label_path_str = str(img_path).replace('/images/', '/labels/').replace('\\images\\', '\\labels\\')
-                                    label_path = Path(label_path_str).with_suffix('.txt')
+                                    # Image path (relative to coco_base_path)
+                                    img_path = coco_base_path / line.lstrip('./')
 
-                                    if label_path.exists():
-                                        coco_pairs.append({
-                                            'image': img_path,
-                                            'label': label_path,
-                                            'source': 'coco'
-                                        })
-                    except Exception as e:
-                        logging.warning(f"  Error reading COCO text file {txt_file_path}: {e}")
+                                    if img_path.exists():
+                                        # Derive label path by replacing 'images' with 'labels' and extension with '.txt'
+                                        label_path_str = str(img_path).replace('/images/', '/labels/').replace('\\images\\', '\\labels\\')
+                                        label_path = Path(label_path_str).with_suffix('.txt')
+
+                                        if label_path.exists():
+                                            coco_pairs.append({
+                                                'image': img_path,
+                                                'label': label_path,
+                                                'source': 'coco'
+                                            })
+                        except Exception as e:
+                            logging.warning(f"  Error reading COCO text file {txt_file_path}: {e}")
+                    else:
+                        logging.warning(f"  COCO text file not found: {txt_file_path}")
                 else:
-                    logging.warning(f"  COCO text file not found: {txt_file_path}")
-            else:
-                # Traditional directory-based approach
-                coco_images_dir = coco_base_path / coco_split_entry
-                coco_labels_dir = coco_base_path / coco_split_entry.replace('images', 'labels')
+                    # Traditional directory-based approach
+                    coco_images_dir = coco_base_path / coco_split_entry
+                    coco_labels_dir = coco_base_path / coco_split_entry.replace('images', 'labels')
 
-                if coco_images_dir.exists():
-                    for img_file in list(coco_images_dir.glob('*.jpg')) + list(coco_images_dir.glob('*.png')):
-                        label_file = coco_labels_dir / f"{img_file.stem}.txt"
-                        if label_file.exists():
-                            coco_pairs.append({
-                                'image': img_file,
-                                'label': label_file,
-                                'source': 'coco'
-                            })
+                    if coco_images_dir.exists():
+                        for img_file in list(coco_images_dir.glob('*.jpg')) + list(coco_images_dir.glob('*.png')):
+                            label_file = coco_labels_dir / f"{img_file.stem}.txt"
+                            if label_file.exists():
+                                coco_pairs.append({
+                                    'image': img_file,
+                                    'label': label_file,
+                                    'source': 'coco'
+                                })
 
-        logging.info(f"  COCO dataset: {len(coco_pairs)} samples")
+            logging.info(f"  COCO dataset: {len(coco_pairs)} samples")
+        else:
+            logging.info(f"  COCO dataset: skipped (old_ratio=0)")
 
         # Calculate target counts based on ratio
-        if len(new_pairs) == 0:
+        if skip_coco:
+            # old_ratio=0이면 새 데이터만 사용
+            selected_new = new_pairs
+            selected_coco = []
+            logging.info(f"  Using only NEW data (old_ratio=0)")
+        elif len(new_pairs) == 0:
             logging.info(f"  Warning: No new samples found for {split}, using only COCO data")
             selected_new = []
             selected_coco = coco_pairs
@@ -918,15 +939,15 @@ def merge_new_with_coco(new_data_yaml_path, coco_yaml_path=None, output_dir="dat
         'metadata': {
             'version': dataset_version,
             'created_date': datetime.now().isoformat(),
-            'merge_type': base_type,  # 'coco' or 'previous_merged'
-            'base_dataset': Path(coco_yaml_path).name if coco_yaml_path else 'unknown',
+            'merge_type': base_type,  # 'coco', 'previous_merged', or 'none'
+            'base_dataset': Path(coco_yaml_path).name if coco_yaml_path else 'none (new data only)',
             'merge_ratio': {
                 'new': new_ratio,
                 'base': old_ratio
             },
             'source_yamls': {
                 'new': new_data_yaml_path,
-                'base': coco_yaml_path
+                'base': coco_yaml_path if coco_yaml_path else 'none'
             },
             'samples_per_split': stats,
             'random_seed': random_seed
@@ -1283,10 +1304,10 @@ def train_model():
         cache=False,  # Cache images for faster training (first epoch will be slower)
 
         # 기본 파라미터
-        epochs=200,
-        patience=30,             # 조기 종료
-        # epochs=5,
-        # patience=3,             # 조기 종료
+        epochs=10,
+        # patience=30,             # 조기 종료
+        # epochs=10,
+        patience=3,             # 조기 종료
         imgsz=640,
         batch=16,
         
