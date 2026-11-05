@@ -1,0 +1,22 @@
+[
+  {
+    "schema_version": 1,
+    "event_id": "synthetic-event-001",
+    "timestamp": "2026-01-01T00:00:00Z",
+    "camera_id": "synthetic-camera-01",
+    "class_label": "person",
+    "confidence": 0.85,
+    "bbox": [10, 20, 70, 140],
+    "image_path": null
+  },
+  {
+    "schema_version": 1,
+    "event_id": "synthetic-event-002",
+    "timestamp": "2026-01-01T00:00:01Z",
+    "camera_id": "synthetic-camera-01",
+    "class_label": "bicycle",
+    "confidence": 0.6,
+    "bbox": [-5, 15, 120, 95],
+    "image_path": "synthetic/frame-002.png"
+  }
+]

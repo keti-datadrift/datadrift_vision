@@ -3,11 +3,13 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01
+## 현재 구현 범위: PR-01 / PR-02
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
 - 외부 의존성 없는 import 스모크 테스트
+- 불변 DetectionEvent 입력 스키마, 값 검증 및 JSON 왕복 변환
+- 합성 이벤트 메타데이터 2건과 유효·무효 입력 테스트
 
 Python 3.8 이상을 대상으로 하며 표준 라이브러리만 사용합니다.
 GPU, PostgreSQL, 카메라, 모델 가중치, API 키, 네트워크 연결 및 패키지 설치가
@@ -15,7 +17,7 @@ GPU, PostgreSQL, 카메라, 모델 가중치, API 키, 네트워크 연결 및 �
 기존 vision_analysis, cron, retrain, dbmanager 모듈도 import하지 않습니다.
 
 **MockVLM은 아직 구현되지 않았습니다.** PR-06에서 결정적인 모의 응답을 제공할
-예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다. 이벤트 검증, ROI 추출,
+예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다. ROI 추출,
 품질 평가, 프롬프트, 응답 정규화, 시간 누적, 후보 판단, 피드백 및 리포트도
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
@@ -46,6 +48,63 @@ with config_path.open(encoding="utf-8") as stream:
     config = json.load(stream)
 print(config)
 ```
+
+## 이벤트 입력 계약 (PR-02)
+
+`event_schema.DetectionEvent`는 검출기 주장 한 건을 나타내는 불변 dataclass입니다.
+검출 결과가 시각 증거와 일치하는지는 아직 판단하지 않습니다. 객체 생성,
+`from_dict`, `from_json` 모두 동일한 값 검증을 수행하고 잘못된 값은 ValueError를
+발생시킵니다. 필수 생성자 인수 누락 등 Python 호출 오류는 TypeError입니다.
+
+| 필드 | 의미와 규칙 |
+|---|---|
+| schema_version | JSON 입력 필수, 정수 1. Python 생성자 기본값 1 |
+| event_id | 필수 비어 있지 않은 문자열, 이벤트 식별자 |
+| timestamp | 필수 UTC ISO 8601, `YYYY-MM-DDTHH:MM:SS[.ffffff]Z` 또는 `+00:00` |
+| camera_id | 필수 비어 있지 않은 문자열, 합성 카메라/채널 식별자 |
+| class_label | 필수 비어 있지 않은 문자열, 검출 객체 클래스. 현재 가설 검토 대상 라벨 |
+| confidence | 검출기 신뢰도, 유한한 수 0~1. VLM confidence와 별개 |
+| bbox | 필수 `[x1, y1, x2, y2]`, 원본 이미지 기준 픽셀 좌표 |
+| image_path | 선택적 상대 이미지 경로. 생략 또는 null 허용 |
+
+문자열 ID와 라벨은 앞뒤 공백·제어문자를 거부합니다. 클래스 목록은 고정하지
+않습니다. JSON의 누락·미지정 필드와 중복 키는 거부합니다. bool은 정수/실수로
+인정하지 않으며 NaN·Infinity도 거부합니다. timestamp는 달력상 유효해야 하며
+시간대 누락·비UTC 오프셋·윤초를 허용하지 않습니다. 출력은 UTC Z 형태로
+정규화하며 소수 초는 최대 6자리입니다. 이벤트 간 중복 ID·시각 순서는 이
+단일 이벤트 스키마에서 검사하지 않습니다.
+
+bbox는 좌상단 포함·우하단 제외인 xyxy 좌표 계약입니다. 유한한 정수/실수를
+허용하고 x1 < x2, y1 < y2여야 합니다. 정규화된 0~1 좌표가 아닙니다.
+음수 및 이미지 경계 밖 좌표는 허용합니다. 이미지 크기를 알 수 없는 입력
+단계에서는 클램프하지 않으며, PR-03에서 이미지 크기에 맞춰 처리할 예정입니다.
+내부 bbox는 tuple로 복사되어 입력 리스트나 내보낸 dict 수정의 영향을 받지 않습니다.
+
+image_path는 `/` 구분자의 상대경로만 허용하며 절대경로, URL, 드라이브 문자,
+역슬래시, 빈 경로 요소, `.` 및 `..`를 거부합니다. 경로는 호출자가 명시하는
+이미지 루트 기준으로 해석할 예정입니다. 이 모듈은 경로를 해석하거나 파일을
+열지 않으며 존재 여부·이미지 형식·심볼릭 링크 안전성도 검사하지 않습니다.
+이미지 로딩 단계에서 실제 루트 경계를 확인해야 합니다.
+
+저장소 루트에서 실행할 수 있는 합성 입력 예제입니다.
+
+```python
+import json
+from pathlib import Path
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+
+path = Path("examples/vlm_semantic_drift/sample_data/events.json")
+with path.open(encoding="utf-8") as stream:
+    events = [DetectionEvent.from_dict(item) for item in json.load(stream)]
+for event in events:
+    print(event.to_json())
+    assert DetectionEvent.from_json(event.to_json()) == event
+```
+
+`sample_data/events.json`은 이 샘플을 위해 손으로 작성한 합성 메타데이터이며
+실제 검출·카메라·현장 기록이 아닙니다. 첫 이벤트는 이미지 참조가 없고, 두 번째의
+`synthetic/frame-002.png`는 실제 파일이 없는 설명용 참조입니다. 영상은 포함하지
+않으며 이미지 없이도 검증과 JSON 변환을 실행할 수 있습니다.
 
 ## 설정 계약
 
@@ -99,10 +158,9 @@ no_alert는 정상임을 증명하지 않으며, drift_candidate는 사람의 �
 
 ## 데이터 및 공개 시 유의점
 
-현재 입력 영상·이벤트 데이터는 포함하지 않습니다. 후속 테스트는 합성 자료를
+현재 합성 이벤트 메타데이터만 포함하며 입력 영상은 없습니다. 후속 테스트는 합성 자료를
 사용하며 실제 현장 영상, 개인정보, 내부 주소, 인증정보, 모델 파일을 포함하지
 않습니다. Mock 결과를 실제 정확도나 성능 향상 수치로 보고하지 않습니다.
 
-루트 .gitignore의 README.md 규칙은 이 파일도 제외합니다. 공개 준비 시 이
-파일의 누락 여부를 확인해야 합니다. 승인된 스테이징 단계에서 해당 파일만
-명시적으로 강제 추가할 수 있으며, PR-01 개발 단계에서는 스테이징하지 않습니다.
+이 README는 PR-01에서 Git 추적에 포함되었습니다. 루트 .gitignore의 README.md
+규칙은 이미 추적 중인 이 파일의 변경에는 적용되지 않습니다.
