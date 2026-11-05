@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "vlm": {
+    "provider": "mock"
+  },
+  "aggregation": {
+    "window_size": 10,
+    "min_valid_samples": 5,
+    "mismatch_ratio_threshold": 0.6,
+    "consecutive_mismatches": 3
+  }
+}

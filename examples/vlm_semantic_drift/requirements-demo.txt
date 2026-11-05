@@ -1,0 +1,3 @@
+# PR-01 uses only the Python 3.8+ standard library.
+# Runtime dependencies: none. Test dependencies: none (unittest).
+# Image dependencies will be considered when ROI support is implemented.
