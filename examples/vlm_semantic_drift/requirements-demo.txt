@@ -1,3 +1,4 @@
-# PR-01 uses only the Python 3.8+ standard library.
-# Runtime dependencies: none. Test dependencies: none (unittest).
-# Image dependencies will be considered when ROI support is implemented.
+# Optional for package/event imports; required for ROI extraction and its tests.
+# pip selects a Python-compatible release (Python 3.8: Pillow 10.4).
+# Tests use the standard-library unittest runner; no extra test dependency.
+Pillow>=10.4,<14
