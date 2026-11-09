@@ -3,27 +3,38 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02
+## 현재 구현 범위: PR-01 / PR-02 / PR-03
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
 - 외부 의존성 없는 import 스모크 테스트
 - 불변 DetectionEvent 입력 스키마, 값 검증 및 JSON 왕복 변환
 - 합성 이벤트 메타데이터 2건과 유효·무효 입력 테스트
+- 메모리 이미지와 DetectionEvent를 사용하는 경계 제한 ROI 추출
 
-Python 3.8 이상을 대상으로 하며 표준 라이브러리만 사용합니다.
-GPU, PostgreSQL, 카메라, 모델 가중치, API 키, 네트워크 연결 및 패키지 설치가
+Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
+라이브러리만 사용하며, ROI 추출 및 전체 테스트에는 Pillow 설치가 필요합니다.
+설치 후 실행에는 GPU, PostgreSQL, 카메라, 모델 가중치, API 키, 네트워크 연결이
 필요하지 않습니다. 루트 requirements와 config.yaml을 사용하지 않습니다.
 기존 vision_analysis, cron, retrain, dbmanager 모듈도 import하지 않습니다.
 
 **MockVLM은 아직 구현되지 않았습니다.** PR-06에서 결정적인 모의 응답을 제공할
-예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다. ROI 추출,
+예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다.
 품질 평가, 프롬프트, 응답 정규화, 시간 누적, 후보 판단, 피드백 및 리포트도
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
 
-저장소 루트에서 실행합니다.
+저장소 루트에서 별도 가상환경을 생성해 실행합니다. 아래는 Windows PowerShell
+예제입니다. 기존 .venv가 있다면 덮어쓰지 말고 별도의 환경을 사용하세요.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r examples/vlm_semantic_drift/requirements-demo.txt
+.\.venv\Scripts\python.exe -B -m unittest discover -s examples/vlm_semantic_drift/tests -p "test_*.py" -v
+```
+
+가상환경 활성화 후에는 다음 명령도 사용할 수 있습니다.
 
 ```shell
 python -B -S -c "import examples.vlm_semantic_drift"
@@ -77,7 +88,7 @@ print(config)
 bbox는 좌상단 포함·우하단 제외인 xyxy 좌표 계약입니다. 유한한 정수/실수를
 허용하고 x1 < x2, y1 < y2여야 합니다. 정규화된 0~1 좌표가 아닙니다.
 음수 및 이미지 경계 밖 좌표는 허용합니다. 이미지 크기를 알 수 없는 입력
-단계에서는 클램프하지 않으며, PR-03에서 이미지 크기에 맞춰 처리할 예정입니다.
+단계에서는 클램프하지 않으며, ROI 추출 함수가 이미지 크기에 맞춰 처리합니다.
 내부 bbox는 tuple로 복사되어 입력 리스트나 내보낸 dict 수정의 영향을 받지 않습니다.
 
 image_path는 `/` 구분자의 상대경로만 허용하며 절대경로, URL, 드라이브 문자,
@@ -105,6 +116,66 @@ for event in events:
 실제 검출·카메라·현장 기록이 아닙니다. 첫 이벤트는 이미지 참조가 없고, 두 번째의
 `synthetic/frame-002.png`는 실제 파일이 없는 설명용 참조입니다. 영상은 포함하지
 않으며 이미지 없이도 검증과 JSON 변환을 실행할 수 있습니다.
+
+## ROI 추출 (PR-03)
+
+`extract_roi(image, event) -> ROIResult`는 메모리에 로드된 Pillow `Image.Image`와
+PR-02의 `DetectionEvent`를 입력으로 받습니다. `event.image_path`는 읽거나
+탐색하지 않습니다. 파일을 사용한다면 호출자가 미리 로드해야 합니다.
+이미지의 현재 픽셀 좌표계와 bbox 좌표계가 같아야 하며 EXIF 회전, 색 변환,
+리사이즈는 자동으로 수행하지 않습니다.
+
+결과 필드는 다음과 같습니다.
+
+| 필드 | 내용 |
+|---|---|
+| image | 원본과 픽셀 저장 공간을 공유하지 않는 Pillow ROI 이미지 |
+| bbox | 실제 잘라낸 정수 `(left, top, right, bottom)`, 우하단 제외 |
+| size | `(width, height)`, 반환 이미지의 현재 크기 |
+
+좌표 규칙은 **좌상단 floor(내림), 우하단 ceil(올림)** 후 각각 `[0, width]`,
+`[0, height]`로 제한하는 것입니다. 반올림 전에 연속 좌표의 교집합을 확인해
+이미지 밖 bbox나 경계에 닿기만 하는 bbox가 픽셀로 부풀려지지 않도록 합니다.
+예를 들어 `(1.9, 2.1, 6.2, 5.9)`는 `(1, 2, 7, 6)`, 크기 `(6, 4)`가 됩니다.
+유효한 작은 소수점 영역은 최소 한 픽셀을 포함합니다. 원본과 이벤트는 변경하지
+않으며 반환 이미지의 픽셀 수정도 원본에 영향을 주지 않습니다.
+
+잘못된 이미지 또는 이벤트 타입은 TypeError, 빈 이미지·닫힌 이미지·양의 면적을
+갖는 교집합이 없는 bbox는 ValueError입니다. 0폭·0높이 또는 역전된 bbox는
+DetectionEvent 생성 단계에서 이미 거부됩니다. 결과 객체의 필드 대입은 막지만
+내부 Pillow 이미지 자체는 수정 가능합니다.
+
+아래 예제는 디스크 영상 없이 합성 이미지로 실행됩니다.
+
+```python
+from PIL import Image
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.roi_extractor import extract_roi
+
+event = DetectionEvent(
+    event_id="synthetic-roi-01",
+    timestamp="2026-01-01T00:00:00Z",
+    camera_id="synthetic-camera",
+    class_label="synthetic-object",
+    confidence=0.8,
+    bbox=(-2.5, 1.2, 6.1, 7.8),
+)
+with Image.new("RGB", (10, 8), (20, 40, 60)) as image:
+    result = extract_roi(image, event)
+    print(result.bbox, result.size)  # (0, 1, 7, 8) (7, 7)
+    result.image.close()
+```
+
+Pillow는 ROI 함수 호출 시에만 import됩니다. Pillow 없이도 패키지·이벤트·ROI
+모듈의 import는 가능하지만 ROI 실행과 전체 테스트에는 설치가 필요합니다.
+의존성 범위는 `Pillow>=10.4,<14`이며 pip가 Python 요구사항에 맞는 버전을 선택합니다.
+[Pillow 공식 Python 지원표](https://pillow.readthedocs.io/en/stable/installation/python-support.html)에
+따르면 Python 3.8은 Pillow 10.4까지, Python 3.9는 11 계열까지 지원합니다.
+이 범위는 모든 Python/Pillow 조합을 실제 실행 검증했다는 의미가 아닙니다.
+테스트 러너는 표준 라이브러리 unittest이며 추가 테스트 의존성은 없습니다.
+
+ROI 추출은 후속 품질 점검과 VLM 검증에 전달할 영상 영역을 준비하는 단계입니다.
+실제 VLM 호출, MockVLM, 드리프트 후보 판단 및 자동 재학습은 수행하지 않습니다.
 
 ## 설정 계약
 
