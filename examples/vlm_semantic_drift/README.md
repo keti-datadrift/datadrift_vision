@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -11,16 +11,17 @@
 - 불변 DetectionEvent 입력 스키마, 값 검증 및 JSON 왕복 변환
 - 합성 이벤트 메타데이터 2건과 유효·무효 입력 테스트
 - 메모리 이미지와 DetectionEvent를 사용하는 경계 제한 ROI 추출
+- 밝기·노출·경계 정보 기반 품질 후보 평가와 판단 유보
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
-라이브러리만 사용하며, ROI 추출 및 전체 테스트에는 Pillow 설치가 필요합니다.
+라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
 설치 후 실행에는 GPU, PostgreSQL, 카메라, 모델 가중치, API 키, 네트워크 연결이
 필요하지 않습니다. 루트 requirements와 config.yaml을 사용하지 않습니다.
 기존 vision_analysis, cron, retrain, dbmanager 모듈도 import하지 않습니다.
 
 **MockVLM은 아직 구현되지 않았습니다.** PR-06에서 결정적인 모의 응답을 제공할
 예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다.
-품질 평가, 프롬프트, 응답 정규화, 시간 누적, 후보 판단, 피드백 및 리포트도
+프롬프트, 응답 정규화, 시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -177,6 +178,84 @@ Pillow는 ROI 함수 호출 시에만 import됩니다. Pillow 없이도 패키�
 ROI 추출은 후속 품질 점검과 VLM 검증에 전달할 영상 영역을 준비하는 단계입니다.
 실제 VLM 호출, MockVLM, 드리프트 후보 판단 및 자동 재학습은 수행하지 않습니다.
 
+## 이미지 품질 점검 (PR-04)
+
+`analyze_image_quality(image, config=None) -> ImageQualityResult`는 ROI의
+밝기와 경계 정보를 측정합니다. 입력은 메모리에 로드된 Pillow L/RGB 이미지입니다.
+RGB는 별도의 L 이미지로 변환해 분석하며 원본 픽셀·모드·메타데이터는 변경하지
+않습니다. RGBA·팔레트·고비트 영상은 ValueError로 거부하므로 호출자가 투명도와
+명암 범위의 의미를 결정한 후 변환해야 합니다. 잘못된 입력 타입은 TypeError,
+빈 이미지나 닫힌 이미지는 ValueError입니다. 파일 검색·저장·네트워크 호출은 없습니다.
+
+결과와 설정은 frozen dataclass이고 `issues`는 tuple입니다.
+
+| 결과 필드 | 계산 및 의미 |
+|---|---|
+| mean_brightness | 8-bit L 밝기 평균, 0~255 |
+| dark_pixel_ratio | 밝기 <= dark_pixel_threshold인 픽셀 수 / 전체 픽셀 수 |
+| bright_pixel_ratio | 밝기 >= bright_pixel_threshold인 픽셀 수 / 전체 픽셀 수 |
+| luminance_stddev | 전체 픽셀 밝기의 모집단 표준편차 |
+| edge_score | 수평·수직 인접 픽셀의 절대 밝기 차이 합 / (255 × 인접 쌍 수), 0~1 |
+| issues | 노출·흐림 후보 또는 판단을 제한하는 사유 목록 |
+| assessable | 최소 크기와 대비 조건을 통과하여 흐림 휴리스틱을 적용할 수 있는지 여부 |
+
+edge_score는 높을수록 경계 변화가 큽니다. **흐림 확률이 아니며**, 1×1 이미지처럼
+인접 쌍이 없으면 None입니다. 외곽 패딩·리사이즈 없이 모든 인접 쌍을 한 번씩
+계산합니다. 픽셀 수에 비례하는 시간·메모리를 사용하므로 작은 ROI용 예제입니다.
+
+`ImageQualityConfig`의 시연용 기본값과 판정 규칙:
+
+| 설정 | 기본값 | 규칙 |
+|---|---:|---|
+| dark_pixel_threshold | 32 | 정수 0~255 |
+| bright_pixel_threshold | 223 | 정수 0~255, dark보다 커야 함 |
+| exposure_ratio_threshold | 0.8 | 0 초과 1 이하. 해당 픽셀 비율 >= 기준이면 노출 후보 |
+| min_dimension | 8 | 정수 2 이상. 너비 또는 높이가 기준 미만이면 insufficient_size |
+| min_luminance_stddev | 2.0 | 0~127.5. 표준편차 <= 기준이면 low_texture |
+| blur_score_threshold | 0.03 | 0~1. assessable이고 edge_score < 기준이면 blur_candidate |
+
+노출 후보 이름은 `underexposure_candidate`, `overexposure_candidate`입니다.
+작거나 균일한 영상에서도 노출 지표는 제공하지만 `assessable=False`로 흐림 판정을
+유보합니다. `low_texture`는 초점 흐림의 증명이 아닙니다. 사용자가 노출 비율을
+낮추면 양쪽 노출 후보가 동시에 표시될 수 있습니다. 문제 목록 순서는 과소 노출,
+과다 노출, 크기 부족, 저대비, 흐림 후보 순서로 고정됩니다.
+
+모든 수치 설정은 bool·NaN·Infinity를 거부합니다. 다음처럼 설정 객체를 명시적으로
+전달합니다. config.example.json 및 루트 설정은 이 함수에서 읽지 않습니다.
+
+```python
+from PIL import Image
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.roi_extractor import extract_roi
+from examples.vlm_semantic_drift.image_quality import ImageQualityConfig, analyze_image_quality
+
+event = DetectionEvent(
+    event_id="synthetic-quality-01", timestamp="2026-01-01T00:00:00Z",
+    camera_id="synthetic-camera", class_label="synthetic-object",
+    confidence=0.8, bbox=(0, 0, 16, 16),
+)
+config = ImageQualityConfig(exposure_ratio_threshold=0.9)
+with Image.new("RGB", (16, 16), (128, 128, 128)) as image:
+    roi = extract_roi(image, event)
+    try:
+        result = analyze_image_quality(roi.image, config)
+        print(result.mean_brightness, result.issues, result.assessable)
+        # 128.0 ('low_texture',) False — 균일 영상이라 흐림 판단 유보
+    finally:
+        roi.image.close()
+```
+
+이 임계값은 **현장 검증을 거치지 않은 교육용 기본값**입니다. 부드러운 그라데이션도
+blur_candidate가 될 수 있고, 노이즈는 경계 점수를 높일 수 있습니다. 실제 초점,
+모션 블러, 역광·눈부심의 원인을 구분하지 않습니다. 이미지 해상도·콘텐츠에 따라
+점수가 달라지며 정확도를 보장하지 않습니다. `assessable=True`나 빈 issues도
+이미지 품질 또는 의미적 라벨 일치의 보장이 아닙니다.
+
+품질 이상은 데이터 드리프트가 아닙니다. 이 모듈은 품질 문제를 별도로 기록할
+근거만 제공하며 H0/H1, label_match 또는 drift_candidate를 생성하지 않습니다.
+실제 VLM·MockVLM 추론, 시간 누적 및 드리프트 판단은 후속 PR 범위입니다.
+Pillow는 함수 호출 시에만 import하며 신규 외부 의존성은 없습니다.
+
 ## 설정 계약
 
 PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정을 받는 런타임
@@ -221,7 +300,8 @@ Python에서는 JSON null을 None으로 표현합니다. 응답에는 향후 pro
 is_mock=true를 포함하여 모의 결과임을 구분할 예정입니다.
 
 블러, 저노출, 눈부심·역광 등의 품질 문제는 별도 quality_issue로 표시하고
-의미적 불일치로 집계하지 않습니다. 품질 평가 자체는 아직 구현되지 않았습니다.
+의미적 불일치로 집계하지 않습니다. PR-04는 노출·경계 정보의 간단한 휴리스틱을
+제공하며, 역광·눈부심의 원인 판별과 전체 파이프라인의 품질 게이트 연결은 미구현입니다.
 누적 결과의 예정 상태는 no_alert, quality_issue, drift_candidate입니다.
 no_alert는 정상임을 증명하지 않으며, drift_candidate는 사람의 추가 검토가
 필요하다는 신호입니다. 단일 NO 또는 UNKNOWN은 데이터 드리프트의 증명이
