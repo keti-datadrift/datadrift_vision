@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -13,6 +13,7 @@
 - 메모리 이미지와 DetectionEvent를 사용하는 경계 제한 ROI 추출
 - 밝기·노출·경계 정보 기반 품질 후보 평가와 판단 유보
 - 검출 라벨·선택적 품질 정보를 이용하는 H0/H1 검증 프롬프트 생성
+- 지정된 YES/NO/UNKNOWN 원시 문자열을 반환하는 결정적 MockVLM 어댑터
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -20,8 +21,8 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 필요하지 않습니다. 루트 requirements와 config.yaml을 사용하지 않습니다.
 기존 vision_analysis, cron, retrain, dbmanager 모듈도 import하지 않습니다.
 
-**MockVLM은 아직 구현되지 않았습니다.** PR-06에서 결정적인 모의 응답을 제공할
-예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다.
+**MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
+않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
 응답 정규화, 시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
@@ -254,7 +255,8 @@ blur_candidate가 될 수 있고, 노이즈는 경계 점수를 높일 수 있�
 
 품질 이상은 데이터 드리프트가 아닙니다. 이 모듈은 품질 문제를 별도로 기록할
 근거만 제공하며 H0/H1, label_match 또는 drift_candidate를 생성하지 않습니다.
-실제 VLM·MockVLM 추론, 시간 누적 및 드리프트 판단은 후속 PR 범위입니다.
+실제 VLM 추론, 시간 누적 및 드리프트 판단은 미구현입니다. PR-06의 MockVLM은
+품질 결과로 추론하지 않고 지정된 응답만 재생합니다.
 Pillow는 함수 호출 시에만 import하며 신규 외부 의존성은 없습니다.
 
 ## H0/H1 가설 비교 프롬프트 (PR-05)
@@ -348,6 +350,91 @@ with Image.new("RGB", (16, 16), (128, 128, 128)) as image:
 전체 prompt에는 YES/NO/UNKNOWN 중 한 토큰만 반환하라는 규약과 아래 극성 정의가
 포함됩니다. PR-05는 응답 파싱, 실제 VLM/MockVLM 호출, 시간 누적, 드리프트 판단을
 구현하지 않습니다. 반환된 텍스트는 추론 결과가 아닙니다.
+
+## MockVLM 어댑터 (PR-06)
+
+`VLMAdapter`는 Python 3.8의 `typing.Protocol`로 정의한 공통 인터페이스입니다.
+`generate(prompt: PromptResult, roi: Optional[ROIResult] = None) -> VLMRawResponse`
+형태를 따릅니다. `MockVLMAdapter(response="UNKNOWN")`는 이 인터페이스를 구현하며
+불변 설정으로 지정한 원시 문자열을 매번 그대로 반환합니다. 난수·시각·호출 횟수·
+검출 라벨·신뢰도·품질 정보·이미지 내용은 응답 선택에 사용하지 않습니다.
+
+허용 설정은 정확한 대문자 `YES`, `NO`, `UNKNOWN`입니다. 소문자, 앞뒤 공백,
+다른 타입이나 토큰은 ValueError입니다. 이 검사는 모의 응답 설정 검증이며 실제
+VLM 응답을 파싱하거나 정규화하는 기능은 아닙니다.
+
+불변 `VLMRawResponse`의 필드:
+
+| 필드 | Mock 출력 |
+|---|---|
+| provider | `"mock"` |
+| is_mock | `True` |
+| raw_response | 지정한 `"YES"`, `"NO"`, `"UNKNOWN"` 원시 문자열 |
+
+일반 `VLMRawResponse`는 향후 다른 provider의 가공하지 않은 문자열도 담을 수
+있습니다. `label_match`, `supports_h1`, confidence 또는 drift_candidate 필드는
+없습니다. 응답의 의미 해석·정규화는 **PR-07 Response Parser**에서 구현합니다.
+YES는 H0 지지, NO는 H1 지지, UNKNOWN은 판단 유보 응답을 테스트용으로
+시뮬레이션할 뿐 실제 H0/H1을 검증하지 않습니다.
+
+PromptResult 타입과 모든 문자열 필드의 비어 있지 않음을 검사합니다. data_json은
+중복 키·비표준 NaN/Infinity 상수 없이 읽을 수 있어야 하며, class_label과 quality
+두 키를 가져야 합니다. 라벨은 비어 있지 않은 문자열, quality는 객체 또는 null입니다.
+이 검사는 구조 검증입니다. 프롬프트의 문장 간 일관성, 품질 객체 내부 값과 이미지의
+진실성은 검증하지 않습니다. 프롬프트는 PR-05 builder로 생성하는 것을 전제로 합니다.
+잘못된 객체 타입은 TypeError, 잘못된 필드·JSON·설정은 ValueError입니다.
+
+ROI는 선택적인 **ROIResult 객체**로 전달합니다. Pillow 이미지 자체나 경로 문자열을
+직접 전달하면 TypeError입니다. Mock은 ROI의 타입만 확인하며 이미지·크기·좌표를
+읽거나 파일을 열지 않습니다. ROI 내부 데이터의 유효성이나 프롬프트와의 대응도
+검사하지 않습니다. 생성·관리·close 책임은 호출자에게 있으며 입력 객체는 보존됩니다.
+
+다음 예제는 Pillow 없이 표준 라이브러리만으로 실행됩니다.
+
+```python
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+from examples.vlm_semantic_drift.vlm_adapter import MockVLMAdapter
+
+event = DetectionEvent(
+    event_id="synthetic-mock", timestamp="2026-01-01T00:00:00Z",
+    camera_id="synthetic-camera", class_label="person",
+    confidence=0.8, bbox=(0, 0, 8, 8),
+)
+prompt = build_hypothesis_prompts(event)
+print(MockVLMAdapter().generate(prompt).raw_response)  # UNKNOWN
+for answer in ("YES", "NO", "UNKNOWN"):
+    result = MockVLMAdapter(response=answer).generate(prompt)
+    print(result.provider, result.is_mock, result.raw_response)
+# mock True YES
+# mock True NO
+# mock True UNKNOWN
+```
+
+앞의 event를 사용한 합성 ROI·품질·프롬프트 연동 예제입니다.
+
+```python
+from PIL import Image
+from examples.vlm_semantic_drift.roi_extractor import extract_roi
+from examples.vlm_semantic_drift.image_quality import analyze_image_quality
+
+with Image.new("RGB", (8, 8), (128, 128, 128)) as image:
+    roi = extract_roi(image, event)
+    try:
+        quality = analyze_image_quality(roi.image)
+        prompt = build_hypothesis_prompts(event, quality)
+        result = MockVLMAdapter("YES").generate(prompt, roi=roi)
+        print(result.raw_response, result.is_mock)  # YES True
+    finally:
+        roi.image.close()
+```
+
+이 균일 이미지에도 YES가 나오는 이유는 테스트 설정이 YES이기 때문입니다.
+이미지에 person이 있다고 판단한 결과가 아닙니다. **모의 결과를 실제 모델 정확도,
+현장 검증 또는 성능 향상 수치로 사용하면 안 됩니다.** 모델 다운로드, 외부 API,
+GPU·DB 연결, 실제 추론, 응답 파싱, 시간 누적, 재학습은 구현하지 않았습니다.
+어댑터 import·실행에는 신규 외부 의존성이 없습니다. 합성 이미지 연동 예제만
+기존 Pillow를 사용합니다.
 
 ## 설정 계약
 
