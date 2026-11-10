@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -12,6 +12,7 @@
 - 합성 이벤트 메타데이터 2건과 유효·무효 입력 테스트
 - 메모리 이미지와 DetectionEvent를 사용하는 경계 제한 ROI 추출
 - 밝기·노출·경계 정보 기반 품질 후보 평가와 판단 유보
+- 검출 라벨·선택적 품질 정보를 이용하는 H0/H1 검증 프롬프트 생성
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -21,7 +22,7 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 
 **MockVLM은 아직 구현되지 않았습니다.** PR-06에서 결정적인 모의 응답을 제공할
 예정이며, 실제 VLM의 인식 성능을 나타내지 않습니다.
-프롬프트, 응답 정규화, 시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
+응답 정규화, 시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -256,6 +257,98 @@ blur_candidate가 될 수 있고, 노이즈는 경계 점수를 높일 수 있�
 실제 VLM·MockVLM 추론, 시간 누적 및 드리프트 판단은 후속 PR 범위입니다.
 Pillow는 함수 호출 시에만 import하며 신규 외부 의존성은 없습니다.
 
+## H0/H1 가설 비교 프롬프트 (PR-05)
+
+`build_hypothesis_prompts(event, quality=None, config=None) -> PromptResult`는
+**텍스트 생성과 입력 검증만** 수행합니다. 실제 이미지가 함수에 전달되거나 VLM에
+전송되는 것은 아닙니다. 후속 어댑터가 해당 이벤트에 맞는 ROI를 별도로 제공해야
+하며, 이 함수는 이미지 존재 여부나 라벨의 시각적 타당성을 검사하지 않습니다.
+
+- H0: ROI의 시각적 증거가 검출 라벨과 일치합니다.
+- H1: ROI의 시각적 증거가 검출 라벨과 일치하지 않습니다.
+- UNKNOWN: 가림·품질 한계·정보 부족 때문에 H0/H1 중 하나를 선택할 수 없습니다.
+
+검출 라벨은 정답이 아닌 검증 대상입니다. 지시문에 물체의 외형·행동을 추가하지
+않으며, NO를 선택하려면 불일치를 판단할 시각적 근거가 있어야 합니다. 증거 부족을
+NO로 취급하지 않습니다. 이번 PR에서 H1과 UNKNOWN을 명시적으로 분리했습니다.
+
+`PromptConfig`와 `PromptResult`는 frozen dataclass입니다.
+
+| 설정 | 기본값 | 규칙 |
+|---|---|---|
+| max_label_length | 128 | 정수 1~256, 라벨 문자 수 상한 |
+| include_quality | true | bool, false이면 제공된 품질 정보도 프롬프트에서 생략 |
+
+`PromptResult`는 `h0`, `h1`, `question`, `response_contract`, `data_json`,
+전체 결합 문자열 `prompt`를 제공합니다. 생성 언어는 영어로 고정합니다.
+H0/H1과 질문은 고정된 `data.class_label` 참조를 사용하고, 실제 라벨은 JSON의
+class_label 값에만 기록합니다. 이벤트 ID·카메라 ID·시각·신뢰도·경로는 프롬프트에
+포함하지 않습니다. 원본 이벤트는 기존 DetectionEvent 계약으로 재검증합니다.
+
+외부 문자열은 JSON 이스케이프하고 `<`, `>`, `&`도 이스케이프하여 데이터 구분을
+유지합니다. 라벨의 Unicode 제어·서식 문자와 과도한 길이는 거부합니다. 임의의
+라벨을 지시문으로 실행하지 않도록 명시하지만, **텍스트 구분만으로 실제 모델의
+프롬프트 인젝션 저항성을 보장하지 않습니다.** 실제 VLM 보안·정확도 평가는 미수행입니다.
+
+품질 결과는 타입, 지표 범위, 알려진 issues 이름, assessable의 bool 여부를
+검증합니다. 지표에서 issues를 재계산하거나 품질 임계값을 바꾸지 않으며, 두 입력이
+동일한 ROI에서 유래했는지는 호출자가 보장해야 합니다. quality=None은 품질 정상의
+뜻이 아닙니다. include_quality=False여도 전달된 품질 객체의 유효성은 검사합니다.
+타입 오류는 TypeError, 값·길이·지표 범위 오류는 ValueError입니다.
+
+issues는 시각적 검증의 한계를 알리는 참고 정보이며 답변을 자동 결정하지 않습니다.
+`assessable=False`는 흐림 휴리스틱을 적용하지 못했다는 뜻일 뿐, VLM의 모든 시각적
+판단이 불가능하다는 뜻은 아닙니다. 어떤 품질 후보도 의미적 불일치나 드리프트로
+변환하지 않습니다.
+
+기본 프롬프트 생성은 Pillow 없이 표준 라이브러리만으로 실행할 수 있습니다.
+
+```python
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+
+event = DetectionEvent(
+    event_id="synthetic-prompt", timestamp="2026-01-01T00:00:00Z",
+    camera_id="synthetic-camera", class_label="person",
+    confidence=0.8, bbox=(0, 0, 16, 16),
+)
+result = build_hypothesis_prompts(event)
+print(result.h0)
+print(result.h1)
+print(result.question)
+print(result.data_json)
+```
+
+출력 예시:
+
+```text
+H0: Visual evidence in the ROI agrees with the detector label in data.class_label.
+H1: Visual evidence in the ROI does not agree with the detector label in data.class_label.
+Does the visible evidence in the provided ROI agree with data.class_label? Compare H0 and H1 neutrally using only visible evidence.
+{"class_label": "person", "quality": null}
+```
+
+품질 정보를 연결할 때는 앞의 event를 그대로 사용합니다.
+
+```python
+from PIL import Image
+from examples.vlm_semantic_drift.roi_extractor import extract_roi
+from examples.vlm_semantic_drift.image_quality import analyze_image_quality
+
+with Image.new("RGB", (16, 16), (128, 128, 128)) as image:
+    roi = extract_roi(image, event)
+    try:
+        quality = analyze_image_quality(roi.image)
+        result = build_hypothesis_prompts(event, quality=quality)
+        print(result.prompt)
+    finally:
+        roi.image.close()
+```
+
+전체 prompt에는 YES/NO/UNKNOWN 중 한 토큰만 반환하라는 규약과 아래 극성 정의가
+포함됩니다. PR-05는 응답 파싱, 실제 VLM/MockVLM 호출, 시간 누적, 드리프트 판단을
+구현하지 않습니다. 반환된 텍스트는 추론 결과가 아닙니다.
+
 ## 설정 계약
 
 PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정을 받는 런타임
@@ -277,16 +370,17 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 충족했을 때 후보를 표시하며 UNKNOWN 또는 품질 문제는 연속 NO를 끊습니다.
 최종 시간·그룹 처리 및 판단 규칙은 PR-08/09에서 테스트와 함께 확정합니다.
 
-## 가설과 응답의 의미: 후속 구현 계약
+## 가설과 응답의 의미: 프롬프트 규약과 후속 정규화 계약
 
 계획된 흐름은 이벤트 ROI와 검출 정보 → 품질 점검 → H0/H1 질문 → VLM 어댑터
 → 응답 정규화 → 시간 누적 → 후보 리포트 → 선택적 사용자 피드백입니다.
 
 - H0: 검출기가 붙인 이벤트 라벨이 사용 가능한 시각 증거와 일치합니다.
-- H1: 라벨이 시각 증거와 불일치하거나 일치 여부가 불확실하여 검토가 필요합니다.
+- H1: 라벨이 시각 증거와 불일치합니다. 불확실성은 별도 UNKNOWN 상태입니다.
 
 질문은 항상 **“이벤트 라벨이 시각 증거와 일치하는가?”**로 해석합니다.
-다음은 향후 정규화 계약이며 지금 생성되는 출력은 아닙니다.
+다음 매핑은 프롬프트의 응답 규약에 포함됩니다. 실제 응답 파싱과 정규화 결과
+생성은 후속 PR 범위이며, 지금 반환되는 것은 프롬프트 텍스트뿐입니다.
 
 | 응답 | label_match | supports_h1 | 누적 처리 |
 |---|---|---|---|
@@ -294,7 +388,7 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 | NO | false | true | 유효한 불일치 표본 |
 | UNKNOWN | null | null | 판단 유보, 불일치 비율의 분자·분모에서 제외 |
 
-UNKNOWN은 H1의 불확실성 검토 대상이지만 확정 불일치의 증거는 아닙니다.
+UNKNOWN은 H0/H1 선택을 유보하는 상태이며 H1 지지 또는 불일치 증거가 아닙니다.
 supports_h1의 null은 지지 여부를 결정할 수 없다는 뜻이며 false와 다릅니다.
 Python에서는 JSON null을 None으로 표현합니다. 응답에는 향후 provider와
 is_mock=true를 포함하여 모의 결과임을 구분할 예정입니다.
