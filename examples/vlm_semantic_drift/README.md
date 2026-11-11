@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -15,6 +15,7 @@
 - 검출 라벨·선택적 품질 정보를 이용하는 H0/H1 검증 프롬프트 생성
 - 지정된 YES/NO/UNKNOWN 원시 문자열을 반환하는 결정적 MockVLM 어댑터
 - 단일 원시 응답의 엄격한 토큰 정규화와 UNKNOWN/INVALID 구분
+- 단일 스트림의 최근 N개 응답 보관과 유효 표본·불일치 비율 계산
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -24,7 +25,7 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 
 **MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
 않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
-시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
+경과시간 기반 판단, 드리프트 후보 판단, 피드백 및 리포트는
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -256,7 +257,7 @@ blur_candidate가 될 수 있고, 노이즈는 경계 점수를 높일 수 있�
 
 품질 이상은 데이터 드리프트가 아닙니다. 이 모듈은 품질 문제를 별도로 기록할
 근거만 제공하며 H0/H1, label_match 또는 drift_candidate를 생성하지 않습니다.
-실제 VLM 추론, 시간 누적 및 드리프트 판단은 미구현입니다. PR-06의 MockVLM은
+실제 VLM 추론과 드리프트 판단은 미구현이며 응답 누적은 PR-08에서 제공합니다. PR-06의 MockVLM은
 품질 결과로 추론하지 않고 지정된 응답만 재생합니다.
 Pillow는 함수 호출 시에만 import하며 신규 외부 의존성은 없습니다.
 
@@ -509,13 +510,89 @@ print(invalid.status, invalid.normalized_response, invalid.valid)
 파서는 입력이나 원본 문자열을 수정하지 않으며 파일·네트워크 접근 없이 결정적으로
 동작합니다. 실제 이미지의 정답, 품질, 모델 정확도는 평가하지 않습니다. `is_mock`
 값도 그대로 보존하므로 모의 응답이 실제 VLM 검증 결과가 되는 것은 아닙니다.
-시간 누적은 **PR-08**에서, 드리프트 후보 판단은 그 이후 PR에서 구현할 예정입니다.
+최근 N개 응답 통계는 아래 **PR-08**에서 제공하며 드리프트 후보 판단은 PR-09 예정입니다.
+
+## 최근 N개 응답 집계 (PR-08)
+
+`SlidingWindow(window_size=10, min_valid_samples=5)`는 메모리에 최근 N개
+관측을 유지합니다. `add(event, parsed_response)`는 DetectionEvent와
+ParsedVLMResponse를 검증하여 추가하며 반환값은 None입니다. 용량을 넘으면 가장
+오래된 관측을 제거합니다. UNKNOWN과 INVALID도 자리를 차지하므로 새 관측에 의해
+유효 표본 수가 줄거나 준비 상태가 다시 False가 될 수 있습니다.
+
+`snapshot() -> WindowStats`는 다음 불변 데이터를 반환합니다.
+
+| 구조/필드 | 의미 |
+|---|---|
+| WindowEntry | event_id, UTC timestamp, camera_id, class_label, response |
+| WindowEntry.response | 독립 복사된 ParsedVLMResponse; provider, is_mock, 원시 문자열 등 보존 |
+| WindowStats.entries | 오래된 순서의 WindowEntry 튜플; 이후 add에도 변하지 않음 |
+| window_size, min_valid_samples | 인스턴스 설정 |
+| total_count | 현재 보관 관측 수 (평생 누적 건수가 아님) |
+| yes_count, no_count | 일치·불일치 응답 건수 |
+| unknown_count, invalid_count | 판단 유보·응답 형식 오류 건수 |
+| valid_count | YES + NO; 파서의 valid=True 건수와 다름 (UNKNOWN 제외) |
+| mismatch_ratio | NO / (YES + NO); 유효 표본이 없으면 None |
+| ready | valid_count >= min_valid_samples; 통계 준비 상태일 뿐 드리프트 신호 아님 |
+
+설정은 bool을 제외한 정수이며 `window_size >= 1`,
+`1 <= min_valid_samples <= window_size`입니다. JSON 예제의 10/5와 같은 기본값을
+사용하지만 파일을 자동으로 읽지는 않습니다. 작은 단위 테스트를 위해 API는 최소
+표본 1도 허용하며, 기존 JSON 설정 계약은 최소 표본 2 이상을 유지합니다.
+`mismatch_ratio_threshold=0.6`, `consecutive_mismatches=3`은 이 모듈에서 사용하지 않습니다.
+
+첫 입력의 `(camera_id, class_label, provider, is_mock)` 조합에 윈도우가 고정됩니다.
+서로 다른 카메라·클래스·provider 또는 Mock/실제 결과는 별도 인스턴스로 관리합니다.
+UTC 시각은 문자열 사전순이 아닌 datetime 값으로 비교하며 **엄격히 증가**해야 합니다.
+역순뿐 아니라 동일 시각도 거부합니다. 같은 프레임에 여러 검출이 있는 상황의 병합·
+재정렬은 구현하지 않습니다. 현재 보관 중인 event_id 재사용도 거부합니다.
+제거된 ID를 무제한 기억하지 않으므로, 제거된 ID에 새로운 미래 시각을 붙인 재사용은
+검출하지 못합니다. 과거 이벤트 그대로의 재전송은 시간 검사로 거부됩니다.
+
+잘못된 객체 타입은 TypeError, 잘못된 값·스트림·순서·중복은 ValueError입니다.
+DetectionEvent 계약과 파서의 원시 문자열/상태/극성 일관성을 재검증하며 실패 시
+윈도우를 변경하지 않습니다. 응답에는 이벤트 ID가 없으므로 이벤트와 응답의 실제
+대응 관계는 호출자가 보장해야 합니다. 초기화하려면 새 SlidingWindow를 생성합니다.
+
+다음 합성 예제는 표준 라이브러리만 사용합니다.
+
+```python
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+from examples.vlm_semantic_drift.vlm_adapter import MockVLMAdapter, VLMRawResponse
+from examples.vlm_semantic_drift.response_parser import parse_vlm_response
+from examples.vlm_semantic_drift.sliding_window import SlidingWindow
+
+window = SlidingWindow(window_size=10, min_valid_samples=3)
+for index, token in enumerate(("YES", "NO", "UNKNOWN", "invalid", "NO")):
+    event = DetectionEvent(
+        event_id="synthetic-window-" + str(index),
+        timestamp="2026-01-01T00:00:0{}Z".format(index),
+        camera_id="synthetic-camera", class_label="person",
+        confidence=0.8, bbox=(0, 0, 8, 8),
+    )
+    if token == "invalid":
+        raw = VLMRawResponse("mock", True, "YES because...")
+    else:
+        raw = MockVLMAdapter(token).generate(build_hypothesis_prompts(event))
+    window.add(event, parse_vlm_response(raw))
+stats = window.snapshot()
+print(stats.total_count, stats.valid_count, stats.no_count, stats.mismatch_ratio, stats.ready)
+# 5 3 2 0.6666666666666666 True
+print(stats.entries[-1].response.provider, stats.entries[-1].response.is_mock)
+# mock True
+```
+
+이 비율은 VLM 응답상 불일치 통계이며 데이터 드리프트 발생률이나 모델 오류율을
+직접 의미하지 않습니다. Mock 결과는 실제 모델 성능 평가에 사용할 수 없습니다.
+품질 게이트 연결, 경과시간 기반 윈도우, 영속 저장, 동시 갱신, 연속 NO 판단은
+미구현입니다. 실제 드리프트 후보 판단은 PR-09에서 다루며 재학습·알림은 실행하지 않습니다.
 
 ## 설정 계약
 
 PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정을 받는 런타임
-로더·검증기는 아직 없습니다. 시간 누적 설정은 후속 구현을 위한 제안값이며
-현재 어떤 판단에도 적용되지 않습니다.
+로더·검증기는 아직 없습니다. PR-08 생성자에 window_size와 min_valid_samples를
+직접 전달합니다. 비율 임계값과 연속성 설정은 후속 판단 기능을 위한 제안값입니다.
 
 | 필드 | 기본값 | 의미 및 유효 범위 |
 |---|---:|---|
@@ -527,10 +604,10 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 | aggregation.consecutive_mismatches | 3 | 연속 NO 기준, 2 이상이며 min_valid_samples 이하 |
 
 임계값은 실측 성능으로 정한 값이 아닌 **교육용 예제값**입니다. 후속 구현에서는
-최근 window_size개 이벤트 중 품질을 통과하고 YES/NO로 판정된 표본만 비율의
-분모에 포함하는 방식을 제안합니다. 최소 표본 수, 비율, 연속 NO 조건을 모두
+품질 게이트 연결 방식을 별도로 확정해야 합니다. 현재 PR-08은 품질 입력을 받지 않고
+YES/NO만 비율의 분모에 포함합니다. 향후 최소 표본 수, 비율, 연속 NO 조건을 모두
 충족했을 때 후보를 표시하며 UNKNOWN 또는 품질 문제는 연속 NO를 끊습니다.
-최종 시간·그룹 처리 및 판단 규칙은 PR-08/09에서 테스트와 함께 확정합니다.
+시간·그룹 정책은 위 PR-08 설명을 따르며 후보 판단 규칙은 PR-09에서 확정합니다.
 
 ## 가설과 응답의 의미: 프롬프트 규약과 정규화 계약
 
@@ -542,7 +619,7 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 
 질문은 항상 **“이벤트 라벨이 시각 증거와 일치하는가?”**로 해석합니다.
 다음 매핑은 프롬프트의 응답 규약에 포함되며 PR-07 파서에서 해석됩니다.
-아래 누적 처리 정책은 후속 PR-08/09의 계획이며 아직 실행하지 않습니다.
+아래 누적 처리 정책은 PR-08 통계에 적용되며 후보 판단은 아직 수행하지 않습니다.
 
 | 응답 | label_match | supports_h1 | 누적 처리 |
 |---|---|---|---|
