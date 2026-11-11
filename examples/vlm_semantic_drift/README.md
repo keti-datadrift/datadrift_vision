@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -14,6 +14,7 @@
 - 밝기·노출·경계 정보 기반 품질 후보 평가와 판단 유보
 - 검출 라벨·선택적 품질 정보를 이용하는 H0/H1 검증 프롬프트 생성
 - 지정된 YES/NO/UNKNOWN 원시 문자열을 반환하는 결정적 MockVLM 어댑터
+- 단일 원시 응답의 엄격한 토큰 정규화와 UNKNOWN/INVALID 구분
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -23,7 +24,7 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 
 **MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
 않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
-응답 정규화, 시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
+시간 누적, 드리프트 후보 판단, 피드백 및 리포트도
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -373,7 +374,7 @@ VLM 응답을 파싱하거나 정규화하는 기능은 아닙니다.
 
 일반 `VLMRawResponse`는 향후 다른 provider의 가공하지 않은 문자열도 담을 수
 있습니다. `label_match`, `supports_h1`, confidence 또는 drift_candidate 필드는
-없습니다. 응답의 의미 해석·정규화는 **PR-07 Response Parser**에서 구현합니다.
+없습니다. 응답의 의미 해석·정규화는 별도의 **PR-07 Response Parser**가 담당합니다.
 YES는 H0 지지, NO는 H1 지지, UNKNOWN은 판단 유보 응답을 테스트용으로
 시뮬레이션할 뿐 실제 H0/H1을 검증하지 않습니다.
 
@@ -432,9 +433,83 @@ with Image.new("RGB", (8, 8), (128, 128, 128)) as image:
 이 균일 이미지에도 YES가 나오는 이유는 테스트 설정이 YES이기 때문입니다.
 이미지에 person이 있다고 판단한 결과가 아닙니다. **모의 결과를 실제 모델 정확도,
 현장 검증 또는 성능 향상 수치로 사용하면 안 됩니다.** 모델 다운로드, 외부 API,
-GPU·DB 연결, 실제 추론, 응답 파싱, 시간 누적, 재학습은 구현하지 않았습니다.
+GPU·DB 연결, 실제 추론, 시간 누적, 재학습은 구현하지 않았습니다.
+응답 파싱은 아래의 별도 모듈에서 수행합니다.
 어댑터 import·실행에는 신규 외부 의존성이 없습니다. 합성 이미지 연동 예제만
 기존 Pillow를 사용합니다.
+
+## 응답 파서 (PR-07)
+
+`parse_vlm_response(response: VLMRawResponse) -> ParsedVLMResponse`는 단일 원시
+문자열의 형식과 응답 극성만 해석합니다. 입력은 문자열 자체가 아닌 VLMRawResponse
+객체입니다. 반환값은 frozen dataclass이며 다음 필드를 제공합니다.
+
+| 필드 | 의미 |
+|---|---|
+| provider, is_mock | 입력 메타데이터를 변경 없이 보존 |
+| raw_response | 공백·개행을 포함한 원본 문자열 그대로 보존 |
+| normalized_response | 유효한 대문자 토큰, INVALID이면 None |
+| status | YES / NO / UNKNOWN / INVALID |
+| label_match | 응답상 라벨 일치 여부: True / False / None |
+| supports_h1 | 응답상 불일치 가설 지지 여부: True / False / None |
+| valid | 허용된 응답 형식인지 여부. 실제 판단의 정확도를 의미하지 않음 |
+
+| status | label_match | supports_h1 | valid |
+|---|---|---|---|
+| YES | True | False | True |
+| NO | False | True | True |
+| UNKNOWN | None | None | True |
+| INVALID | None | None | False |
+
+정규화는 Python `str.strip()`으로 앞뒤 공백만 제거한 뒤 정확한 대문자 토큰을
+비교합니다. 공백에는 탭·개행과 Python이 공백으로 인식하는 Unicode 문자도
+포함됩니다. 내부 공백, 소문자, 문장, 구두점, JSON, Markdown은 해석하지 않습니다.
+대소문자 변환·부분 문자열 검색·Unicode 정규화도 수행하지 않습니다.
+
+```text
+"YES"         -> YES, valid=True
+" NO "        -> NO, valid=True
+"UNKNOWN\n"   -> UNKNOWN, valid=True
+"yes"         -> INVALID, valid=False
+"YES because...", "YES NO", "", "{\"answer\":\"YES\"}" -> INVALID
+```
+
+잘못된 문자열은 예외 대신 분석 가능한 INVALID 결과가 됩니다. 반면 다른 객체
+타입을 전달하면 TypeError입니다. 기존 VLMRawResponse 계약을 재검증하여 손상된
+provider/is_mock/raw_response 필드는 ValueError로 처리합니다. raw_response가
+문자열이 아닌 경우는 입력 계약 위반이지 VLM 문자열의 형식 오류가 아닙니다.
+
+UNKNOWN은 유효한 판단 유보이고 INVALID는 응답 형식 실패입니다. 둘 다 라벨
+불일치의 증거가 없으므로 H1 지지로 처리하지 않습니다. INVALID를 NO 또는 UNKNOWN으로
+자동 대체하지 않습니다. 또한 단일 NO도 데이터 드리프트를 확정하지 않습니다.
+
+다음 예제는 표준 라이브러리만으로 실행되며 실제 이미지나 모델을 사용하지 않습니다.
+
+```python
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+from examples.vlm_semantic_drift.vlm_adapter import MockVLMAdapter, VLMRawResponse
+from examples.vlm_semantic_drift.response_parser import parse_vlm_response
+
+event = DetectionEvent(
+    event_id="synthetic-parser", timestamp="2026-01-01T00:00:00Z",
+    camera_id="synthetic-camera", class_label="person",
+    confidence=0.8, bbox=(0, 0, 8, 8),
+)
+prompt = build_hypothesis_prompts(event)
+raw = MockVLMAdapter().generate(prompt)
+result = parse_vlm_response(raw)
+print(result.status, result.label_match, result.supports_h1, result.valid, result.is_mock)
+# UNKNOWN None None True True
+invalid = parse_vlm_response(VLMRawResponse("mock", True, "YES because..."))
+print(invalid.status, invalid.normalized_response, invalid.valid)
+# INVALID None False
+```
+
+파서는 입력이나 원본 문자열을 수정하지 않으며 파일·네트워크 접근 없이 결정적으로
+동작합니다. 실제 이미지의 정답, 품질, 모델 정확도는 평가하지 않습니다. `is_mock`
+값도 그대로 보존하므로 모의 응답이 실제 VLM 검증 결과가 되는 것은 아닙니다.
+시간 누적은 **PR-08**에서, 드리프트 후보 판단은 그 이후 PR에서 구현할 예정입니다.
 
 ## 설정 계약
 
@@ -457,7 +532,7 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 충족했을 때 후보를 표시하며 UNKNOWN 또는 품질 문제는 연속 NO를 끊습니다.
 최종 시간·그룹 처리 및 판단 규칙은 PR-08/09에서 테스트와 함께 확정합니다.
 
-## 가설과 응답의 의미: 프롬프트 규약과 후속 정규화 계약
+## 가설과 응답의 의미: 프롬프트 규약과 정규화 계약
 
 계획된 흐름은 이벤트 ROI와 검출 정보 → 품질 점검 → H0/H1 질문 → VLM 어댑터
 → 응답 정규화 → 시간 누적 → 후보 리포트 → 선택적 사용자 피드백입니다.
@@ -466,19 +541,20 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 - H1: 라벨이 시각 증거와 불일치합니다. 불확실성은 별도 UNKNOWN 상태입니다.
 
 질문은 항상 **“이벤트 라벨이 시각 증거와 일치하는가?”**로 해석합니다.
-다음 매핑은 프롬프트의 응답 규약에 포함됩니다. 실제 응답 파싱과 정규화 결과
-생성은 후속 PR 범위이며, 지금 반환되는 것은 프롬프트 텍스트뿐입니다.
+다음 매핑은 프롬프트의 응답 규약에 포함되며 PR-07 파서에서 해석됩니다.
+아래 누적 처리 정책은 후속 PR-08/09의 계획이며 아직 실행하지 않습니다.
 
 | 응답 | label_match | supports_h1 | 누적 처리 |
 |---|---|---|---|
 | YES | true | false | 유효한 일치 표본 |
 | NO | false | true | 유효한 불일치 표본 |
 | UNKNOWN | null | null | 판단 유보, 불일치 비율의 분자·분모에서 제외 |
+| INVALID | null | null | 형식 오류, 불일치 증거로 사용하지 않음 |
 
 UNKNOWN은 H0/H1 선택을 유보하는 상태이며 H1 지지 또는 불일치 증거가 아닙니다.
 supports_h1의 null은 지지 여부를 결정할 수 없다는 뜻이며 false와 다릅니다.
-Python에서는 JSON null을 None으로 표현합니다. 응답에는 향후 provider와
-is_mock=true를 포함하여 모의 결과임을 구분할 예정입니다.
+Python에서는 JSON null을 None으로 표현합니다. PR-06 원시 응답과 PR-07 파싱
+결과는 provider와 is_mock을 보존하며, MockVLM 결과에는 is_mock=True가 포함됩니다.
 
 블러, 저노출, 눈부심·역광 등의 품질 문제는 별도 quality_issue로 표시하고
 의미적 불일치로 집계하지 않습니다. PR-04는 노출·경계 정보의 간단한 휴리스틱을
