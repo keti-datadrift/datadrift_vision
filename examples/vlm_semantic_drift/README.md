@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08 / PR-09
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -16,6 +16,7 @@
 - 지정된 YES/NO/UNKNOWN 원시 문자열을 반환하는 결정적 MockVLM 어댑터
 - 단일 원시 응답의 엄격한 토큰 정규화와 UNKNOWN/INVALID 구분
 - 단일 스트림의 최근 N개 응답 보관과 유효 표본·불일치 비율 계산
+- 최소 표본·불일치 비율·최근 연속 NO를 AND로 결합한 데모용 후보 판단
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -25,7 +26,7 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 
 **MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
 않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
-경과시간 기반 판단, 드리프트 후보 판단, 피드백 및 리포트는
+경과시간 기반 판단, 피드백 및 리포트는
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -257,7 +258,7 @@ blur_candidate가 될 수 있고, 노이즈는 경계 점수를 높일 수 있�
 
 품질 이상은 데이터 드리프트가 아닙니다. 이 모듈은 품질 문제를 별도로 기록할
 근거만 제공하며 H0/H1, label_match 또는 drift_candidate를 생성하지 않습니다.
-실제 VLM 추론과 드리프트 판단은 미구현이며 응답 누적은 PR-08에서 제공합니다. PR-06의 MockVLM은
+실제 VLM 추론은 미구현이며 응답 누적은 PR-08, 규칙 기반 후보 판단은 PR-09에서 제공합니다. PR-06의 MockVLM은
 품질 결과로 추론하지 않고 지정된 응답만 재생합니다.
 Pillow는 함수 호출 시에만 import하며 신규 외부 의존성은 없습니다.
 
@@ -510,7 +511,7 @@ print(invalid.status, invalid.normalized_response, invalid.valid)
 파서는 입력이나 원본 문자열을 수정하지 않으며 파일·네트워크 접근 없이 결정적으로
 동작합니다. 실제 이미지의 정답, 품질, 모델 정확도는 평가하지 않습니다. `is_mock`
 값도 그대로 보존하므로 모의 응답이 실제 VLM 검증 결과가 되는 것은 아닙니다.
-최근 N개 응답 통계는 아래 **PR-08**에서 제공하며 드리프트 후보 판단은 PR-09 예정입니다.
+최근 N개 응답 통계는 아래 **PR-08**, 규칙 기반 후보 판단은 **PR-09**에서 제공합니다.
 
 ## 최근 N개 응답 집계 (PR-08)
 
@@ -585,14 +586,101 @@ print(stats.entries[-1].response.provider, stats.entries[-1].response.is_mock)
 
 이 비율은 VLM 응답상 불일치 통계이며 데이터 드리프트 발생률이나 모델 오류율을
 직접 의미하지 않습니다. Mock 결과는 실제 모델 성능 평가에 사용할 수 없습니다.
-품질 게이트 연결, 경과시간 기반 윈도우, 영속 저장, 동시 갱신, 연속 NO 판단은
-미구현입니다. 실제 드리프트 후보 판단은 PR-09에서 다루며 재학습·알림은 실행하지 않습니다.
+품질 게이트 연결, 경과시간 기반 윈도우, 영속 저장, 동시 갱신은 미구현입니다.
+최근 연속 NO와 후보 판단은 아래 PR-09에서 다루며 재학습·알림은 실행하지 않습니다.
+
+## 규칙 기반 드리프트 후보 판단 (PR-09)
+
+`evaluate_drift(stats: WindowStats, config=None) -> DriftDecisionResult`는
+PR-08 스냅샷을 변경하지 않는 순수 함수입니다. 실제 데이터 드리프트를 확정하거나
+통계적 유의성을 검정하지 않습니다. **검증된 운영 임계값이 아닌 데모 휴리스틱**입니다.
+
+불변 `DriftDecisionConfig`는 다음 설정을 받습니다. JSON 파일은 자동으로 읽지 않습니다.
+
+| 설정 | 기본값 | 허용 범위 |
+|---|---:|---|
+| min_valid_samples | 5 | bool 제외 정수, 2 이상 |
+| mismatch_ratio_threshold | 0.6 | bool 제외 유한 수, 0 초과 1 이하 |
+| consecutive_mismatches | 3 | bool 제외 정수, 2 이상 min_valid_samples 이하 |
+
+최소 두 개의 증거를 요구하여 단일 NO로 후보를 만들지 않습니다. 설정은
+`DriftDecisionConfig(min_valid_samples=5, mismatch_ratio_threshold=0.7, consecutive_mismatches=3)`처럼
+전달합니다. `stats.ready`는 윈도우 설정에 따른 값이므로 직접 사용하지 않고,
+**판단 설정의 min_valid_samples**와 `stats.valid_count`를 비교합니다. 설정의 최소
+표본 수가 윈도우 용량보다 크면 항상 INSUFFICIENT_DATA가 됩니다.
+
+판단은 아래 세 조건의 **AND**입니다. 모든 비교는 경계값을 포함합니다.
+
+1. `stats.valid_count >= config.min_valid_samples`
+2. `stats.mismatch_ratio >= config.mismatch_ratio_threshold`
+3. 최근 연속 NO 수가 `config.consecutive_mismatches` 이상
+
+연속성은 현재 보관 엔트리의 끝에서 역순으로 조사하며 YES, UNKNOWN 또는 INVALID를
+만나면 중단합니다. 제거된 과거 엔트리는 세지 않습니다. UNKNOWN과 INVALID는
+H1 증거가 아니며 연속 불일치도 확인할 수 없으므로 연속성을 끊습니다.
+불일치 비율은 PR-08 값을 그대로 결과에 보존합니다. 유효 표본이 없으면 None이며
+후보로 판단하지 않습니다. 품질 정보는 입력받지 않으므로 품질 게이트는 적용하지 않습니다.
+
+| status | 의미 |
+|---|---|
+| INSUFFICIENT_DATA | 유효 표본이 판단 설정의 최소 개수에 못 미침 |
+| NO_CANDIDATE | 최소 개수는 충족하지만 비율 또는 최근 연속 NO 조건 미충족 |
+| CANDIDATE | 세 가지 데모 조건 모두 충족; 사람의 추가 검토 대상 |
+
+불변 `DriftDecisionResult`에는 `status`, `is_candidate`, `valid_samples`,
+`mismatch_ratio`, `consecutive_mismatches`, 적용한 `min_valid_samples`,
+`mismatch_ratio_threshold`, `consecutive_mismatches_threshold`, 설명 `reason`이 있습니다.
+`provider`, `is_mock`, `camera_id`, `class_label`도 보존합니다. 빈 윈도우에서는
+이 네 식별 필드가 모두 None입니다. Mock 후보도 is_mock=True이므로 실제 모델의
+정확도나 드리프트 검출 성능으로 해석하면 안 됩니다.
+
+WindowStats의 건수·비율·준비 상태와 엔트리 응답의 일관성, 시간순서, 중복 ID,
+카메라·클래스·provider·is_mock의 단일 스트림 조건을 검증합니다. 객체 타입 오류는
+TypeError, 모순된 통계나 잘못된 설정·필드는 ValueError입니다. 모순을 자동 보정하거나
+정상 판단 결과로 숨기지 않습니다. 입력은 `SlidingWindow.snapshot()`으로 만드세요.
+
+다음 예제는 합성 이벤트와 MockVLM만 사용합니다.
+
+```python
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+from examples.vlm_semantic_drift.vlm_adapter import MockVLMAdapter
+from examples.vlm_semantic_drift.response_parser import parse_vlm_response
+from examples.vlm_semantic_drift.sliding_window import SlidingWindow
+from examples.vlm_semantic_drift.drift_decision import evaluate_drift
+
+for tokens in (
+    ("YES", "YES", "NO", "NO", "NO"),
+    ("NO", "NO", "NO", "YES", "YES"),
+    ("YES", "NO", "NO", "NO", "UNKNOWN"),
+):
+    window = SlidingWindow()
+    for index, token in enumerate(tokens):
+        event = DetectionEvent(
+            event_id="synthetic-decision-" + str(index),
+            timestamp="2026-01-01T00:00:0{}Z".format(index),
+            camera_id="synthetic-camera", class_label="person",
+            confidence=0.8, bbox=(0, 0, 8, 8),
+        )
+        raw = MockVLMAdapter(token).generate(build_hypothesis_prompts(event))
+        window.add(event, parse_vlm_response(raw))
+    result = evaluate_drift(window.snapshot())
+    print(result.status, result.valid_samples, result.mismatch_ratio,
+          result.consecutive_mismatches, result.is_mock)
+# CANDIDATE 5 0.6 3 True
+# NO_CANDIDATE 5 0.6 0 True
+# INSUFFICIENT_DATA 4 0.75 0 True
+```
+
+NO_CANDIDATE는 드리프트가 없음을 확정하지 않으며 CANDIDATE도 실제 드리프트의
+확정 판정이 아닙니다. 실제 추론, 통계적 검정, 품질 게이트, 알림, 재학습은 미구현입니다.
+PR-10에서는 Human Feedback을 연결할 예정이며 이번 모듈은 피드백을 수집하지 않습니다.
 
 ## 설정 계약
 
 PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정을 받는 런타임
 로더·검증기는 아직 없습니다. PR-08 생성자에 window_size와 min_valid_samples를
-직접 전달합니다. 비율 임계값과 연속성 설정은 후속 판단 기능을 위한 제안값입니다.
+직접 전달합니다. PR-09의 판단 설정도 DriftDecisionConfig에 직접 전달합니다.
 
 | 필드 | 기본값 | 의미 및 유효 범위 |
 |---|---:|---|
@@ -605,9 +693,9 @@ PR-01은 아래 설정 파일의 계약을 테스트합니다. 사용자 설정�
 
 임계값은 실측 성능으로 정한 값이 아닌 **교육용 예제값**입니다. 후속 구현에서는
 품질 게이트 연결 방식을 별도로 확정해야 합니다. 현재 PR-08은 품질 입력을 받지 않고
-YES/NO만 비율의 분모에 포함합니다. 향후 최소 표본 수, 비율, 연속 NO 조건을 모두
-충족했을 때 후보를 표시하며 UNKNOWN 또는 품질 문제는 연속 NO를 끊습니다.
-시간·그룹 정책은 위 PR-08 설명을 따르며 후보 판단 규칙은 PR-09에서 확정합니다.
+YES/NO만 비율의 분모에 포함합니다. PR-09는 최소 표본 수, 비율, 연속 NO 조건을 모두
+충족했을 때 후보를 표시하며 YES/UNKNOWN/INVALID가 연속 NO를 끊습니다.
+시간·그룹 정책은 위 PR-08 설명을 따르며 품질 게이트는 아직 연결하지 않았습니다.
 
 ## 가설과 응답의 의미: 프롬프트 규약과 정규화 계약
 
@@ -619,7 +707,7 @@ YES/NO만 비율의 분모에 포함합니다. 향후 최소 표본 수, 비율,
 
 질문은 항상 **“이벤트 라벨이 시각 증거와 일치하는가?”**로 해석합니다.
 다음 매핑은 프롬프트의 응답 규약에 포함되며 PR-07 파서에서 해석됩니다.
-아래 누적 처리 정책은 PR-08 통계에 적용되며 후보 판단은 아직 수행하지 않습니다.
+아래 누적 처리 정책은 PR-08 통계에 적용되며 규칙 기반 후보 판단은 PR-09가 수행합니다.
 
 | 응답 | label_match | supports_h1 | 누적 처리 |
 |---|---|---|---|
@@ -636,8 +724,8 @@ Python에서는 JSON null을 None으로 표현합니다. PR-06 원시 응답과 
 블러, 저노출, 눈부심·역광 등의 품질 문제는 별도 quality_issue로 표시하고
 의미적 불일치로 집계하지 않습니다. PR-04는 노출·경계 정보의 간단한 휴리스틱을
 제공하며, 역광·눈부심의 원인 판별과 전체 파이프라인의 품질 게이트 연결은 미구현입니다.
-누적 결과의 예정 상태는 no_alert, quality_issue, drift_candidate입니다.
-no_alert는 정상임을 증명하지 않으며, drift_candidate는 사람의 추가 검토가
+PR-09 결과 상태는 INSUFFICIENT_DATA, NO_CANDIDATE, CANDIDATE입니다.
+NO_CANDIDATE는 정상임을 증명하지 않으며, CANDIDATE는 사람의 추가 검토가
 필요하다는 신호입니다. 단일 NO 또는 UNKNOWN은 데이터 드리프트의 증명이
 아니며, 자동 재학습이나 모델 배포를 실행하지 않습니다.
 
