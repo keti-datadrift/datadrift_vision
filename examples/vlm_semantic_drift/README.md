@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08 / PR-09 / PR-10
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08 / PR-09 / PR-10 / PR-11
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -18,6 +18,7 @@
 - 단일 스트림의 최근 N개 응답 보관과 유효 표본·불일치 비율 계산
 - 최소 표본·불일치 비율·최근 연속 NO를 AND로 결합한 데모용 후보 판단
 - 자동 후보 판단과 분리된 불변 사람 검토 기록 및 메모리 기반 추가·조회
+- 통계·자동 판단·사람 검토를 분리해 보존하는 JSON 보고서 데이터와 문자열 생성
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -27,7 +28,7 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 
 **MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
 않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
-경과시간 기반 판단, 피드백 영속 저장 및 리포트는
+경과시간 기반 판단, 피드백·보고서 영속 저장은
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -769,7 +770,125 @@ decision_ref는 자동 생성·검증된 이벤트 ID가 아닙니다. 호출자
 문자열 검증이 개인정보를 자동 탐지·삭제하는 것은 아닙니다. is_mock=True는 유지되며,
 CONFIRMED를 포함한 어떤 모의 검토도 실제 영상 검증이나 모델 성능 지표가 아닙니다.
 실제 UI·인증·권한 관리·DB·알림·학습 데이터 생성·재학습은 구현하지 않습니다.
-PR-11에서는 JSON Report와의 연계를 개발할 예정입니다.
+PR-11 JSON Report는 아래처럼 기록을 별도 배열로 보고서에 포함할 수 있습니다.
+
+## JSON 보고서 (PR-11)
+
+`build_drift_report(stats, decision, feedback_records=(), *, decision_ref, generated_at)`는
+기존 WindowStats, DriftDecisionResult, HumanFeedbackRecord 목록을 독립적인 dict/list로
+변환합니다. 반환 보고서를 수정해도 원본 객체는 변하지 않습니다. 자동 판단 결과나
+임계값을 재계산·수정하지 않으며 사람의 의견으로 자동 판단을 덮어쓰지 않습니다.
+
+`generated_at`은 호출자가 제공하는 **timezone-aware UTC datetime**이어야 합니다.
+timezone 없는 값, UTC가 아닌 오프셋, 문자열은 거부합니다. UTC 오프셋 0인 시각을
+`2026-01-01T00:02:00Z`처럼 변환하며 소수 초가 있으면 6자리로 표현합니다.
+현재 시각을 읽지 않아 동일 입력으로 동일 결과를 만듭니다. 검토 시각과의 선후 관계는
+자동 검증하지 않습니다. `decision_ref`는 PR-10과 같은 비어 있지 않은 최대 128자 문자열입니다.
+
+보고서 스키마는 다음과 같습니다.
+
+| 최상위 필드 | 내용 |
+|---|---|
+| schema_version | 문자열 `"1.0"` |
+| decision_ref, generated_at | 호출자가 제공한 판단 참조와 UTC 생성 시각 |
+| source | provider, is_mock |
+| stream | camera_id, class_label |
+| window | total_entries, yes_count, no_count, unknown_count, invalid_count, valid_samples, mismatch_ratio, ready, min_valid_samples |
+| decision | status, is_candidate, consecutive_mismatches, mismatch_ratio_threshold, consecutive_mismatches_threshold, min_valid_samples, reason |
+| human_feedback | feedback_id, decision_ref, reviewer_id, reviewed_at, verdict, comment를 갖는 객체 배열 |
+| limitations | demo_only=True, is_mock, 실제 드리프트 확정이나 모델 성능 지표가 아니라는 description |
+
+`total_entries`는 WindowStats.total_count, `valid_samples`는 valid_count에 대응합니다.
+YES/NO만 유효 표본이며 UNKNOWN/INVALID는 별도 건수를 그대로 보존합니다. 유효 표본이
+없으면 mismatch_ratio는 JSON null입니다. 빈 윈도우의 provider/is_mock 및 스트림 필드도
+None/null이며 값을 추측하지 않습니다. `window.ready`는 윈도우 자체 최소 표본 조건이고
+`decision.status`는 PR-09 판단 결과이므로 서로 다른 의미로 유지합니다.
+
+입력 타입, 기존 통계 계약, 판단 상태·후보 플래그·설정 범위와 통계/판단의 공통 값 및
+카메라·클래스·provider·is_mock 일치를 검사합니다. 기존 PR-09 통계 검증 함수를 재사용하되
+`evaluate_drift()`는 호출하지 않습니다. 입력 판단의 규칙 적용이나 연속 NO를 다시 계산하는
+검증기는 아니므로 PR-09에서 생성한 결과를 전달해야 합니다.
+
+피드백은 list 또는 tuple로 전달합니다. 기본값은 빈 튜플이며 빈 JSON 배열이 됩니다.
+각 기록은 같은 decision_ref와 판단 메타데이터를 가져야 하고 feedback_id 중복은
+거부합니다. CANDIDATE가 아닌 판단도 피드백 없이 보고할 수 있습니다. 피드백이 있으면
+PR-10의 CANDIDATE 제한이 적용됩니다. 전달 순서와 상충된 의견을 그대로 유지하며
+자동 합의를 만들지 않습니다. 타입 오류는 TypeError, 참조·메타데이터 불일치나 잘못된
+값은 ValueError입니다. 같은 참조와 메타데이터가 실제 같은 판단을 뜻하는지는 호출자 책임입니다.
+
+`serialize_drift_report(report)`는 dict를 읽기 쉬운 JSON 문자열로 변환합니다.
+`ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False`를 사용하며 한국어 의견,
+boolean, null을 보존하고 tuple은 배열로 출력합니다. 비문자열 키, 지원하지 않는 객체,
+NaN/Infinity, 순환 참조는 거부합니다. 수정한 dict의 스키마나 판단을 재검증하는 함수는
+아니므로 보고서 구조는 builder로 생성하세요. **파일 저장은 수행하지 않습니다.**
+
+저장소 루트에서 아래 예제를 실행할 수 있습니다. 외부 서비스와 실제 영상은 사용하지 않습니다.
+
+```python
+from datetime import datetime, timezone
+import json
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+from examples.vlm_semantic_drift.vlm_adapter import MockVLMAdapter
+from examples.vlm_semantic_drift.response_parser import parse_vlm_response
+from examples.vlm_semantic_drift.sliding_window import SlidingWindow
+from examples.vlm_semantic_drift.drift_decision import evaluate_drift
+from examples.vlm_semantic_drift.human_feedback import create_feedback, HumanFeedbackLog
+from examples.vlm_semantic_drift.json_report import build_drift_report, serialize_drift_report
+
+window = SlidingWindow()
+for index, token in enumerate(("YES", "YES", "NO", "NO", "NO")):
+    event = DetectionEvent(
+        event_id="synthetic-report-" + str(index),
+        timestamp="2026-01-01T00:00:0{}Z".format(index),
+        camera_id="synthetic-camera", class_label="person",
+        confidence=0.8, bbox=(0, 0, 8, 8),
+    )
+    raw = MockVLMAdapter(token).generate(build_hypothesis_prompts(event))
+    window.add(event, parse_vlm_response(raw))
+stats = window.snapshot()
+decision = evaluate_drift(stats)
+log = HumanFeedbackLog()
+for index, verdict in enumerate(("CONFIRMED", "FALSE_POSITIVE", "DEFERRED"), 1):
+    log.add(create_feedback(
+        decision, decision_ref="decision_demo_01", feedback_id="feedback_demo_0" + str(index),
+        reviewer_id="reviewer_demo_0" + str(index), verdict=verdict,
+        reviewed_at="2026-01-01T00:01:00Z", comment="합성 자료 검토 의견",
+    ))
+report = build_drift_report(
+    stats, decision, log.list_for_decision("decision_demo_01"),
+    decision_ref="decision_demo_01", generated_at=datetime(2026, 1, 1, 0, 2, tzinfo=timezone.utc),
+)
+text = serialize_drift_report(report)
+print(text)
+assert json.loads(text) == report
+# 피드백 없이 만들려면 세 번째 인수를 생략하거나 빈 튜플 ()을 전달합니다.
+```
+
+위 JSON 출력의 일부입니다. 세 피드백은 전체 출력에서 모두 보존됩니다.
+
+```json
+{
+  "schema_version": "1.0",
+  "source": {"provider": "mock", "is_mock": true},
+  "decision": {
+    "status": "CANDIDATE",
+    "is_candidate": true,
+    "consecutive_mismatches": 3,
+    "mismatch_ratio_threshold": 0.6,
+    "consecutive_mismatches_threshold": 3,
+    "min_valid_samples": 5,
+    "reason": "All three demonstration thresholds are met."
+  }
+}
+```
+
+CANDIDATE나 CONFIRMED는 실제 드리프트의 확정 증거가 아니며 NO_CANDIDATE도 드리프트
+부재를 증명하지 않습니다. INSUFFICIENT_DATA는 표본 부족으로 그대로 보고됩니다.
+Mock 결과는 실제 모델 성능 지표가 아닙니다. 원본 이미지·ROI·원시 VLM 응답은 보고서에
+자동 포함하지 않습니다. 의견과 reviewer_id는 그대로 포함되므로 합성 식별자만 사용하고
+개인정보를 넣지 마세요. 자동 개인정보 탐지는 제공하지 않습니다.
+파일 저장·DB·API 서버·UI·알림·재학습은 미구현이며, PR-12에서 End-to-End Demo를 연결할 예정입니다.
 
 ## 설정 계약
 
