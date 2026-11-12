@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08 / PR-09 / PR-10 / PR-11
+## 현재 구현 범위: PR-01~12
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -19,6 +19,7 @@
 - 최소 표본·불일치 비율·최근 연속 NO를 AND로 결합한 데모용 후보 판단
 - 자동 후보 판단과 분리된 불변 사람 검토 기록 및 메모리 기반 추가·조회
 - 통계·자동 판단·사람 검토를 분리해 보존하는 JSON 보고서 데이터와 문자열 생성
+- 합성 RGB 이미지부터 JSON 보고서까지 연결하는 독립 실행형 Mock 데모
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -29,7 +30,91 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 **MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
 않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
 경과시간 기반 판단, 피드백·보고서 영속 저장은
-후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
+후속 작업입니다. 전체 실행 진입점은 `demo_pipeline.py`입니다.
+
+## End-to-End Mock 데모 (PR-12)
+
+저장소 루트에서 실행하며 다음 순서로 기존 공개 함수를 실제 호출합니다.
+
+```text
+합성 RGB 이미지 + DetectionEvent
+  -> extract_roi -> analyze_image_quality -> build_hypothesis_prompts
+  -> MockVLMAdapter.generate -> parse_vlm_response -> SlidingWindow
+  -> evaluate_drift -> 후보에만 합성 Human Feedback
+  -> build_drift_report -> serialize_drift_report -> stdout
+```
+
+`run_demo(scenario="candidate")`는 JSON 스키마 v1.0의 독립적인 보고서 dict를
+반환합니다. `main(argv=None)`은 argparse CLI이며 기본 시나리오는 candidate입니다.
+성공하면 JSON만 표준 출력하고 종료 코드 0, 잘못된 CLI 인수는 stderr와 종료 코드 2,
+의존성 누락 등 실행 오류는 stderr와 0이 아닌 종료 코드를 제공합니다.
+모듈 import는 실행을 시작하지 않으며 Pillow도 실행 시에만 import합니다.
+
+Python 3.8+와 기존 `Pillow>=10.4,<14` 의존성을 사용합니다. 새 패키지는 없습니다.
+Python 3.8에서는 Python 호환 버전인 Pillow 10.4를 사용합니다. 설치 시 패키지를
+내려받은 뒤 실행에는 GPU·DB·카메라·모델·API 키·네트워크가 필요하지 않습니다.
+
+Windows PowerShell (저장소 루트, 기존 .venv가 없을 때만 생성):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r examples/vlm_semantic_drift/requirements-demo.txt
+.\.venv\Scripts\python.exe -B -m examples.vlm_semantic_drift.demo_pipeline --scenario candidate
+.\.venv\Scripts\python.exe -B -m examples.vlm_semantic_drift.demo_pipeline --scenario no_candidate
+.\.venv\Scripts\python.exe -B -m examples.vlm_semantic_drift.demo_pipeline --scenario insufficient_data
+.\.venv\Scripts\python.exe -B -m unittest discover -s examples/vlm_semantic_drift/tests -p "test_*.py" -v
+```
+
+Ubuntu/Linux (저장소 루트, 기존 .venv가 없을 때만 생성):
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r examples/vlm_semantic_drift/requirements-demo.txt
+.venv/bin/python -B -m examples.vlm_semantic_drift.demo_pipeline --scenario candidate
+.venv/bin/python -B -m examples.vlm_semantic_drift.demo_pipeline --scenario no_candidate
+.venv/bin/python -B -m examples.vlm_semantic_drift.demo_pipeline --scenario insufficient_data
+.venv/bin/python -B -m unittest discover -s examples/vlm_semantic_drift/tests -p "test_*.py" -v
+```
+
+`-B`는 Python 바이트코드 캐시 생성을 막습니다. 데모는 결과 파일이나 이미지 파일을
+만들지 않습니다. `-B`를 생략하면 Python 자체가 `__pycache__`를 만들 수 있습니다.
+위 실행은 Windows Python 3.11.7 환경에서 검증했으며 Linux와 Python 3.8 직접 실행은
+미검증입니다. 기존 개발 환경을 덮어쓰거나 운영 requirements를 설치할 필요는 없습니다.
+
+| scenario | 고정 응답 | valid_samples | mismatch_ratio | 최근 연속 NO | status | 피드백 |
+|---|---|---:|---:|---:|---|---|
+| candidate | YES, YES, NO, NO, NO | 5 | 0.6 | 3 | CANDIDATE | CONFIRMED 1건 |
+| no_candidate | NO, NO, NO, YES, YES | 5 | 0.6 | 0 | NO_CANDIDATE | 없음 |
+| insufficient_data | YES, NO, UNKNOWN, INVALID | 2 | 0.5 | 0 | INSUFFICIENT_DATA | 없음 |
+
+세 번째 시나리오는 전체 4건, YES/NO/UNKNOWN/INVALID 각 1건입니다. INVALID만
+`VLMRawResponse("mock", True, "YES because this is a synthetic malformed response")`로
+만들어 실제 파서에 전달합니다. MockVLMAdapter에는 허용된 YES/NO/UNKNOWN만 전달하며
+INVALID를 NO 또는 UNKNOWN으로 바꾸지 않습니다.
+
+이미지는 32×32 RGB 체크무늬이며 각 4×4 블록에 밝기 64/192를 번갈아 넣습니다.
+합성 라벨 person은 실제 객체 검출 결과가 아닙니다. bbox `(-2, 4, 28, 36)`은 기존
+ROI 모듈에서 `(0, 4, 28, 32)`로 제한되어 28×28 ROI를 만듭니다. 품질을 실제
+계산해 프롬프트에 전달하고 ROIResult를 MockVLM에 전달합니다. 성공·오류 모두 이미지와
+ROI 자원을 닫습니다. 품질 분석은 휴리스틱 참고 정보이며 **Quality Gate는 없습니다**.
+assessable=False여도 이벤트를 제외하거나 응답을 바꾸지 않습니다.
+
+이벤트 ID·시각은 고정값이며 시각은 2026-01-01T00:00:00Z부터 1초씩 증가합니다.
+각 실행은 새로운 윈도우(10건, 최소 유효 5건)를 사용합니다. 기존 PR-09 기본 설정
+(5건, 비율 0.6, 연속 NO 3건)을 그대로 호출하며 설정 JSON을 자동으로 읽지 않습니다.
+검토 시각은 00:01:00Z, 보고서 시각은 00:02:00Z로 고정하여 재현성을 유지합니다.
+
+보고서의 최상위 필드는 schema_version, decision_ref, generated_at, source, stream,
+window, decision, human_feedback, limitations로 기존 v1.0과 같습니다. 모든 시나리오의
+source는 `{"provider": "mock", "is_mock": true}`이고, candidate에서만
+`decision_demo_candidate`에 대한 `reviewer_demo_01`의 합성 CONFIRMED를 기록합니다.
+자동 판단과 사람 검토는 별도 필드에 보존됩니다. 품질 지표와 ROI 픽셀은 v1.0 보고서
+필드가 아니므로 추가하지 않습니다. ROI·품질 연동은 통합 테스트에서 확인합니다.
+
+Mock 응답은 이미지 분석이 아닌 사전 지정 토큰의 재생입니다. CONFIRMED 역시 합성
+검토 의견이며 실제 데이터 드리프트 확정이나 모델 성능 측정이 아닙니다. 실제 VLM,
+품질 게이트, 통계적 검정, 영속 저장, 알림·재학습·운영 서비스 통합은 구현하지 않았습니다.
+향후 확장에는 실제 모델 연결과 별도 검증, 품질 처리 정책, 저장·UI 설계가 필요합니다.
 
 ## 실행 및 검증
 
@@ -888,7 +973,7 @@ CANDIDATE나 CONFIRMED는 실제 드리프트의 확정 증거가 아니며 NO_C
 Mock 결과는 실제 모델 성능 지표가 아닙니다. 원본 이미지·ROI·원시 VLM 응답은 보고서에
 자동 포함하지 않습니다. 의견과 reviewer_id는 그대로 포함되므로 합성 식별자만 사용하고
 개인정보를 넣지 마세요. 자동 개인정보 탐지는 제공하지 않습니다.
-파일 저장·DB·API 서버·UI·알림·재학습은 미구현이며, PR-12에서 End-to-End Demo를 연결할 예정입니다.
+파일 저장·DB·API 서버·UI·알림·재학습은 미구현이며, PR-12 데모에서 기존 모듈을 연결합니다.
 
 ## 설정 계약
 
