@@ -3,7 +3,7 @@
 이 디렉터리는 VLM을 활용한 **의미적 드리프트 후보 검토**를 설명하기 위한
 독립 교육용 샘플의 골격입니다. 저장소의 Apache-2.0 라이선스를 따릅니다.
 
-## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08 / PR-09
+## 현재 구현 범위: PR-01 / PR-02 / PR-03 / PR-04 / PR-05 / PR-06 / PR-07 / PR-08 / PR-09 / PR-10
 
 - 부작용 없는 Python 패키지 선언
 - JSON 설정 예제 및 구조·기본값 검증 테스트
@@ -17,6 +17,7 @@
 - 단일 원시 응답의 엄격한 토큰 정규화와 UNKNOWN/INVALID 구분
 - 단일 스트림의 최근 N개 응답 보관과 유효 표본·불일치 비율 계산
 - 최소 표본·불일치 비율·최근 연속 NO를 AND로 결합한 데모용 후보 판단
+- 자동 후보 판단과 분리된 불변 사람 검토 기록 및 메모리 기반 추가·조회
 
 Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 import는 표준
 라이브러리만 사용하며, ROI 추출·품질 분석 및 전체 테스트에는 Pillow 설치가 필요합니다.
@@ -26,7 +27,7 @@ Python 3.8 이상을 대상으로 합니다. 패키지와 이벤트 스키마 im
 
 **MockVLM은 PR-06에서 구현한 모의 응답 재생기입니다.** 실제 이미지를 판단하지
 않으며, 실제 VLM의 인식 성능을 나타내지 않습니다. 실제 VLM 호출은 미구현입니다.
-경과시간 기반 판단, 피드백 및 리포트는
+경과시간 기반 판단, 피드백 영속 저장 및 리포트는
 후속 작업입니다. 전체 실행 진입점 run_demo.py는 PR-12 범위입니다.
 
 ## 실행 및 검증
@@ -674,7 +675,101 @@ for tokens in (
 
 NO_CANDIDATE는 드리프트가 없음을 확정하지 않으며 CANDIDATE도 실제 드리프트의
 확정 판정이 아닙니다. 실제 추론, 통계적 검정, 품질 게이트, 알림, 재학습은 미구현입니다.
-PR-10에서는 Human Feedback을 연결할 예정이며 이번 모듈은 피드백을 수집하지 않습니다.
+사람 검토는 아래 PR-10 모듈에서 별도로 기록하며 판단 모듈 자체는 피드백을 수집하지 않습니다.
+
+## 사람 검토 기록 (PR-10)
+
+`human_feedback.py`는 자동 `DriftDecisionResult`를 보존하면서 사람의 의견을
+별도 불변 `HumanFeedbackRecord`로 기록합니다. **CANDIDATE만 검토 대상**이며
+NO_CANDIDATE와 INSUFFICIENT_DATA는 ValueError로 거부합니다. `is_candidate`도
+정확한 True여야 합니다. 검토 범위 확장은 향후 작업입니다.
+
+| verdict | 의미 |
+|---|---|
+| CONFIRMED | 검토자가 후보 판단에 동의. 과학적·통계적 드리프트 확정 증거는 아님 |
+| FALSE_POSITIVE | 검토자가 후보를 오탐으로 판단. 원래 자동 판단은 변경하지 않음 |
+| DEFERRED | 근거 부족 등으로 보류. 다른 상태로 자동 변환하지 않음 |
+
+`create_feedback(decision, *, decision_ref, feedback_id, reviewer_id, verdict,
+reviewed_at, comment="")`로 다음 기록을 생성합니다.
+
+| 필드 | 내용 |
+|---|---|
+| feedback_id | 로그 내 고유 피드백 ID |
+| decision_ref | 호출자가 제공하는 검토 대상 참조 문자열 |
+| reviewer_id | 검토자 별칭 또는 합성 ID. 인증된 사용자 식별자가 아님 |
+| reviewed_at | UTC 검토 시각 문자열, Z 표기로 정규화 |
+| verdict, comment | 검토 상태와 선택 의견 |
+| decision_status | 원래 상태 CANDIDATE |
+| camera_id, class_label, provider, is_mock | 원래 판단에서 복사한 메타데이터 |
+
+세 ID는 공백만 있는 값·앞뒤 공백·제어 문자를 거부하며 최대 128자입니다.
+시각은 `YYYY-MM-DDTHH:MM:SS[.ffffff]Z` 또는 `+00:00`으로 끝나는 문자열을
+허용합니다. 소수 초는 1~6자리이며, 잘못된 날짜·timezone 없는 값·다른 오프셋은
+거부합니다. datetime 객체는 받지 않습니다. 시각은 호출자가 제공하며 현재 시각이나
+이벤트 시각과 비교하지 않습니다. 의견은 기본 빈 문자열, 최대 1,000자이며 개행 LF와
+탭 외 ASCII 제어 문자는 거부합니다. 잘못된 타입은 TypeError, 잘못된 값은 ValueError입니다.
+
+`HumanFeedbackLog`는 파일이나 DB를 사용하지 않는 메모리 저장소입니다.
+
+- `add(record)`: 검증한 독립 복사본을 등록. 반환값 None, 동일 feedback_id는 ValueError.
+- `get(feedback_id)`: 불변 복사본 조회. 없는 ID는 KeyError.
+- `list_for_decision(decision_ref)`: 등록 순서대로 불변 기록 튜플 반환. 없으면 빈 튜플.
+
+동일 판단에 복수 검토자 또는 같은 검토자의 추가 의견을 허용합니다. 각각 새로운
+feedback_id를 사용해야 합니다. 검토 시각순으로 재정렬하지 않으며, 충돌한 의견도
+그대로 보존합니다. 기존 기록 수정·삭제, 최종 합의 도출, 임계값 자동 조정은 없습니다.
+새 로그 인스턴스를 만들면 빈 상태로 시작하며 종료 시 기록은 사라집니다.
+동시 갱신·용량 제한·영속 저장은 지원하지 않습니다.
+
+다음 예제는 합성 이벤트에서 Mock 후보 생성 후 서로 다른 검토 의견을 기록합니다.
+
+```python
+from examples.vlm_semantic_drift.event_schema import DetectionEvent
+from examples.vlm_semantic_drift.prompt_builder import build_hypothesis_prompts
+from examples.vlm_semantic_drift.vlm_adapter import MockVLMAdapter
+from examples.vlm_semantic_drift.response_parser import parse_vlm_response
+from examples.vlm_semantic_drift.sliding_window import SlidingWindow
+from examples.vlm_semantic_drift.drift_decision import evaluate_drift
+from examples.vlm_semantic_drift.human_feedback import create_feedback, HumanFeedbackLog
+
+window = SlidingWindow()
+for index, token in enumerate(("YES", "YES", "NO", "NO", "NO")):
+    event = DetectionEvent(
+        event_id="synthetic-feedback-" + str(index),
+        timestamp="2026-01-01T00:00:0{}Z".format(index),
+        camera_id="synthetic-camera", class_label="person",
+        confidence=0.8, bbox=(0, 0, 8, 8),
+    )
+    raw = MockVLMAdapter(token).generate(build_hypothesis_prompts(event))
+    window.add(event, parse_vlm_response(raw))
+decision = evaluate_drift(window.snapshot())
+log = HumanFeedbackLog()
+for index, verdict in enumerate(("CONFIRMED", "FALSE_POSITIVE", "DEFERRED"), 1):
+    record = create_feedback(
+        decision, decision_ref="decision_demo_01", feedback_id="feedback_demo_0" + str(index),
+        reviewer_id="reviewer_demo_0" + str(index), verdict=verdict,
+        reviewed_at="2026-01-01T00:01:00Z", comment="Synthetic review only.",
+    )
+    log.add(record)
+print(log.get("feedback_demo_01").verdict)  # CONFIRMED
+print([record.verdict for record in log.list_for_decision("decision_demo_01")])
+# ['CONFIRMED', 'FALSE_POSITIVE', 'DEFERRED']
+print(decision.status, decision.is_mock)  # CANDIDATE True (원본 유지)
+```
+
+decision_ref는 자동 생성·검증된 이벤트 ID가 아닙니다. 호출자가 같은 참조 문자열을
+다른 판단에 사용하면 같은 목록에 나타날 수 있으며, 실제 판단과의 대응·고유성은
+호출자가 보장해야 합니다. 생성 함수는 후보 상태와 보존할 메타데이터를 검사하지만
+후보의 통계 근거를 재계산하거나 진위를 인증하지 않습니다. 직접 생성한 기록도 같은
+필드 검증을 거치며, 로그는 원본 판단 저장소와 연결되어 있지 않습니다.
+
+개인정보 노출을 피하기 위해 실제 이름·이메일·연락처 대신 `reviewer_demo_01` 같은
+합성 식별자만 사용하고 의견에도 실제 현장 정보나 개인정보를 넣지 마세요.
+문자열 검증이 개인정보를 자동 탐지·삭제하는 것은 아닙니다. is_mock=True는 유지되며,
+CONFIRMED를 포함한 어떤 모의 검토도 실제 영상 검증이나 모델 성능 지표가 아닙니다.
+실제 UI·인증·권한 관리·DB·알림·학습 데이터 생성·재학습은 구현하지 않습니다.
+PR-11에서는 JSON Report와의 연계를 개발할 예정입니다.
 
 ## 설정 계약
 
